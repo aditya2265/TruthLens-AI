@@ -216,9 +216,16 @@ def fetch_fallback_news(max_records: int = 9, remaining_budget: float = 5.0) -> 
     return None
 
 
+_FEED_BG_THREAD: threading.Thread | None = None
+_FEED_BG_EVENT = threading.Event()
+_FEED_BG_STARTED = False
+_FEED_BG_LOCK = threading.Lock()
+
+
 def get_cached_news_feed() -> NewsFeedResponse | None:
     """Returns currently cached feed copy if available, without any external network call."""
-    cached_data = _NEWS_FEED_CACHE.get("response")
+    with _NEWS_FEED_LOCK:
+        cached_data = _NEWS_FEED_CACHE.get("response")
     if cached_data:
         cached_copy = dict(cached_data)
         cached_copy["is_cached"] = True
@@ -226,12 +233,42 @@ def get_cached_news_feed() -> NewsFeedResponse | None:
     return None
 
 
+def start_background_feed_worker() -> None:
+    """Starts the single background daemon thread responsible for refreshing the feed cache."""
+    global _FEED_BG_THREAD, _FEED_BG_STARTED
+    with _FEED_BG_LOCK:
+        if _FEED_BG_STARTED:
+            return
+        _FEED_BG_STARTED = True
+
+        def _worker_loop():
+            # Initial warm-up at startup
+            try:
+                fetch_gdelt_news(force_refresh=True, only_cached=False)
+            except Exception:
+                pass
+
+            while True:
+                # Wait for refresh request or TTL expiry (15 mins)
+                _FEED_BG_EVENT.wait(timeout=CACHE_TTL_SECONDS)
+                _FEED_BG_EVENT.clear()
+                try:
+                    fetch_gdelt_news(force_refresh=True, only_cached=False)
+                except Exception:
+                    pass
+
+        _FEED_BG_THREAD = threading.Thread(target=_worker_loop, daemon=True, name="feed-background-worker")
+        _FEED_BG_THREAD.start()
+
+
+def trigger_background_feed_refresh() -> None:
+    """Signals the background feed worker to refresh without blocking the caller."""
+    _FEED_BG_EVENT.set()
+
+
 def warm_news_feed_cache() -> None:
-    """Warms the news feed cache in a background thread without blocking the web request path."""
-    try:
-        fetch_gdelt_news(force_refresh=True)
-    except Exception:
-        pass
+    """Warms the news feed cache using the background worker."""
+    start_background_feed_worker()
 
 
 def fetch_gdelt_news(
@@ -243,368 +280,402 @@ def fetch_gdelt_news(
     """Fetches recent news articles from GDELT 2.0 DOC API with caching, rate limiting, and error handling."""
     global _NEWS_FEED_CACHE, _NEWS_FEED_LOCK
 
-    if only_cached:
-        cached = get_cached_news_feed()
-        if cached:
-            return cached
-        return {
-            "status": "loading",
-            "message": "Live news feed warming in background...",
-            "articles": [],
-            "is_cached": False,
-            "last_updated": "--",
-            "notice": "Loading headlines...",
-        }
-
     req_start = time.time()
     now = time.time()
-    cached_data = _NEWS_FEED_CACHE.get("response")
-    cache_time = _NEWS_FEED_CACHE.get("timestamp", 0.0)
 
-    # 1. Normal page load: return valid cached feed if within 15-minute TTL
-    if not force_refresh and cached_data and (now - cache_time < CACHE_TTL_SECONDS):
-        cached_copy = dict(cached_data)
-        cached_copy["is_cached"] = True
-        return cached_copy  # type: ignore
-
-    # 2. Acquire lock to serialize external calls and enforce minimum 6.0s interval
     with _NEWS_FEED_LOCK:
-        now = time.time()
         cached_data = _NEWS_FEED_CACHE.get("response")
         cache_time = _NEWS_FEED_CACHE.get("timestamp", 0.0)
         last_request_time = _NEWS_FEED_CACHE.get("last_request_time", 0.0)
 
-        # Re-check cache under lock in case another thread just populated it
-        if not force_refresh and cached_data and (now - cache_time < CACHE_TTL_SECONDS):
-            cached_copy = dict(cached_data)
-            cached_copy["is_cached"] = True
-            return cached_copy  # type: ignore
-
-        elapsed_since_last_req = now - last_request_time
-
-        def _attempt_fallback() -> NewsFeedResponse | None:
-            rem_budget = max(0.0, TOTAL_TIMEOUT_CAP - (time.time() - req_start))
-            if rem_budget <= 0.5:
-                return None
-            fb = fetch_fallback_news(max_records=max_records, remaining_budget=rem_budget)
-            if fb:
-                _NEWS_FEED_CACHE["timestamp"] = now
-                _NEWS_FEED_CACHE["response"] = dict(fb)
-            return fb
-
-        # 3. Rate-limit protection: if refresh requested within 6 seconds
-        if force_refresh and elapsed_since_last_req < MIN_REQUEST_INTERVAL_SECONDS:
-            if cached_data:
-                cached_copy = dict(cached_data)
-                cached_copy["is_cached"] = True
-                cached_copy["status"] = "success"
-                orig_time = cached_data.get("last_updated", "")
-                cached_copy["last_updated"] = orig_time if "(cached)" in orig_time else f"{orig_time} (cached)"
-                cached_copy["notice"] = f"Showing cached feed from {orig_time}. GDELT requires a 6-second interval."
-                return cached_copy  # type: ignore
-
-            # No cache exists: try fallback providers within remaining budget
-            fallback_res = _attempt_fallback()
-            if fallback_res:
-                return fallback_res
-
-            return {
-                "status": "error",
-                "message": "GDELT API requests must be spaced at least 6 seconds apart. Please wait a moment.",
-                "articles": [],
-                "is_cached": False,
-                "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
-                "notice": "Rate limit: please wait 6 seconds before retrying.",
-            }
-
-        params = {
-            "query": query,
-            "mode": "ArtList",
-            "maxrecords": str(min(max_records, 15)),
-            "format": "json",
-            "sort": "DateDesc",
-        }
-
-        _NEWS_FEED_CACHE["last_request_time"] = time.time()
-
-        try:
-            resp = requests.get(
-                GDELT_API_URL,
-                params=params,
-                headers={"User-Agent": "TruthLensAI/1.0 (Educational News Feed)"},
-                timeout=GDELT_TIMEOUT,
-                stream=True,
-            )
-
-            if resp.status_code == 429:
-                # GDELT Rate limit reached
+    # 1. If only_cached is requested (web requests and API endpoints)
+    if only_cached:
+        if force_refresh:
+            elapsed = now - last_request_time
+            if elapsed < MIN_REQUEST_INTERVAL_SECONDS:
                 if cached_data:
                     cached_copy = dict(cached_data)
                     cached_copy["is_cached"] = True
                     cached_copy["status"] = "success"
                     orig_time = cached_data.get("last_updated", "")
                     cached_copy["last_updated"] = orig_time if "(cached)" in orig_time else f"{orig_time} (cached)"
-                    cached_copy["notice"] = f"GDELT rate limit reached (max 1 request per 5 seconds). Showing cached feed (retrieved at {orig_time})."
+                    cached_copy["notice"] = f"Showing cached feed from {orig_time}. GDELT requires a 6-second interval."
                     return cached_copy  # type: ignore
-
-                fallback_res = _attempt_fallback()
-                if fallback_res:
-                    return fallback_res
-
                 return {
                     "status": "error",
-                    "message": "GDELT API rate limit reached (max 1 request every 5 seconds). Please wait a moment before refreshing.",
+                    "message": "GDELT API requests must be spaced at least 6 seconds apart. Please wait a moment.",
                     "articles": [],
                     "is_cached": False,
                     "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
-                    "notice": "Feed rate limit reached. Please wait before retrying.",
+                    "notice": "Rate limit: please wait 6 seconds before retrying.",
                 }
-
-            if resp.status_code != 200:
-                if cached_data:
-                    cached_copy = dict(cached_data)
-                    cached_copy["is_cached"] = True
-                    cached_copy["status"] = "success"
-                    cached_copy["notice"] = f"GDELT returned HTTP {resp.status_code}. Showing cached feed."
-                    return cached_copy  # type: ignore
-
-                fallback_res = _attempt_fallback()
-                if fallback_res:
-                    return fallback_res
-
-                return {
-                    "status": "error",
-                    "message": f"GDELT API returned HTTP status code {resp.status_code}.",
-                    "articles": [],
-                    "is_cached": False,
-                    "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
-                    "notice": "Live news feed temporarily unavailable.",
-                }
-
-            # Size check
-            content_bytes = bytearray()
-            for chunk in resp.iter_content(chunk_size=8192):
-                content_bytes.extend(chunk)
-                if len(content_bytes) > MAX_RESPONSE_BYTES:
-                    if cached_data:
-                        cached_copy = dict(cached_data)
-                        cached_copy["is_cached"] = True
-                        cached_copy["status"] = "success"
-                        return cached_copy  # type: ignore
-                    return {
-                        "status": "error",
-                        "message": "GDELT API response size exceeded limit.",
-                        "articles": [],
-                        "is_cached": False,
-                        "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
-                        "notice": "Response payload too large.",
-                    }
-
-            try:
-                data = resp.json()
-            except Exception:
-                # In case GDELT returned plain text rate limit with 200 (edge case) or HTML
-                raw_text = content_bytes.decode("utf-8", errors="replace")
-                if "limit requests to one every" in raw_text.lower():
-                    if cached_data:
-                        cached_copy = dict(cached_data)
-                        cached_copy["is_cached"] = True
-                        cached_copy["status"] = "success"
-                        orig_time = cached_data.get("last_updated", "")
-                        cached_copy["last_updated"] = orig_time if "(cached)" in orig_time else f"{orig_time} (cached)"
-                        cached_copy["notice"] = f"GDELT rate limit reached. Showing cached feed (retrieved at {orig_time})."
-                        return cached_copy  # type: ignore
-
-                    fallback_res = _attempt_fallback()
-                    if fallback_res:
-                        return fallback_res
-
-                    return {
-                        "status": "error",
-                        "message": "GDELT API rate limit reached. Please wait 6 seconds before retrying.",
-                        "articles": [],
-                        "is_cached": False,
-                        "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
-                        "notice": "Feed rate limit reached.",
-                    }
-
-                if cached_data:
-                    cached_copy = dict(cached_data)
-                    cached_copy["is_cached"] = True
-                    cached_copy["status"] = "success"
-                    return cached_copy  # type: ignore
-
-                fallback_res = _attempt_fallback()
-                if fallback_res:
-                    return fallback_res
-
-                return {
-                    "status": "error",
-                    "message": "Failed to parse JSON response from GDELT API.",
-                    "articles": [],
-                    "is_cached": False,
-                    "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
-                    "notice": "Invalid response format.",
-                }
-
-            raw_articles = data.get("articles", [])
-            if not isinstance(raw_articles, list) or len(raw_articles) == 0:
-                if cached_data:
-                    cached_copy = dict(cached_data)
-                    cached_copy["is_cached"] = True
-                    cached_copy["status"] = "success"
-                    return cached_copy  # type: ignore
-
-                fallback_res = _attempt_fallback()
-                if fallback_res:
-                    return fallback_res
-
-                return {
-                    "status": "success",
-                    "message": "No news articles found for query.",
-                    "articles": [],
-                    "is_cached": False,
-                    "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
-                    "notice": "No articles currently returned by feed.",
-                }
-
-            parsed_articles: list[NewsArticle] = []
-            seen_urls = set()
-            seen_titles = set()
-
-            for idx, item in enumerate(raw_articles):
-                if not isinstance(item, dict):
-                    continue
-
-                article_url = item.get("url", "").strip()
-                if not article_url or not (article_url.startswith("http://") or article_url.startswith("https://")):
-                    continue
-
-                canon_url = canonicalize_url(article_url)
-                if not canon_url:
-                    canon_url = article_url
-
-                # Deduplicate by canonical URL
-                if canon_url in seen_urls:
-                    continue
-
-                raw_title = item.get("title", "")
-                title = clean_article_title(raw_title)
-
-                # Deduplicate by normalized title
-                norm_title = title.lower()
-                if norm_title in seen_titles:
-                    continue
-
-                seen_urls.add(canon_url)
-                seen_titles.add(norm_title)
-
-                domain = item.get("domain", "")
-                if not domain:
-                    try:
-                        domain = urllib.parse.urlparse(article_url).hostname or "external news"
-                    except Exception:
-                        domain = "external news"
-
-                seendate = parse_gdelt_seendate(str(item.get("seendate", "")))
-
-                parsed_articles.append(
-                    {
-                        "id": f"gdelt-{idx}-{abs(hash(canon_url)) & 0xffff}",
-                        "title": title,
-                        "url": article_url,
-                        "source_domain": domain,
-                        "seendate_formatted": seendate,
-                        "language": item.get("language", "English"),
-                        "source_country": item.get("sourcecountry", "Global"),
-                    }
-                )
-
-                if len(parsed_articles) >= max_records:
-                    break
-
-            updated_time = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC")
-
-            result: NewsFeedResponse = {
-                "status": "success",
-                "message": f"Successfully retrieved {len(parsed_articles)} recent news articles.",
-                "articles": parsed_articles,
+            # Trigger background refresh without blocking
+            trigger_background_feed_refresh()
+            if cached_data:
+                cached_copy = dict(cached_data)
+                cached_copy["is_cached"] = True
+                cached_copy["status"] = "success"
+                return cached_copy  # type: ignore
+            return {
+                "status": "loading",
+                "message": "Live news feed warming in background...",
+                "articles": [],
                 "is_cached": False,
-                "last_updated": updated_time,
-                "notice": "Discovery feed from GDELT Project — does not establish fact verification or credibility.",
+                "last_updated": "--",
+                "notice": "Loading headlines, please retry shortly...",
             }
 
-            # Cache valid response
+        if cached_data:
+            cached_copy = dict(cached_data)
+            cached_copy["is_cached"] = True
+            return cached_copy  # type: ignore
+
+        # No cache exists yet: trigger background worker and return quick loading response
+        trigger_background_feed_refresh()
+        return {
+            "status": "loading",
+            "message": "Live news feed warming in background...",
+            "articles": [],
+            "is_cached": False,
+            "last_updated": "--",
+            "notice": "Loading headlines, please retry shortly...",
+        }
+
+    # 2. Normal page load: return valid cached feed if within 15-minute TTL
+    if not force_refresh and cached_data and (now - cache_time < CACHE_TTL_SECONDS):
+        cached_copy = dict(cached_data)
+        cached_copy["is_cached"] = True
+        return cached_copy  # type: ignore
+
+    # 3. Non-blocking rate-limit protection for external calls
+    elapsed_since_last_req = now - last_request_time
+
+    def _attempt_fallback() -> NewsFeedResponse | None:
+        rem_budget = max(0.0, TOTAL_TIMEOUT_CAP - (time.time() - req_start))
+        if rem_budget <= 0.5:
+            return None
+        fb = fetch_fallback_news(max_records=max_records, remaining_budget=rem_budget)
+        if fb:
+            with _NEWS_FEED_LOCK:
+                _NEWS_FEED_CACHE["timestamp"] = time.time()
+                _NEWS_FEED_CACHE["response"] = dict(fb)
+        return fb
+
+    if force_refresh and elapsed_since_last_req < MIN_REQUEST_INTERVAL_SECONDS:
+        if cached_data:
+            cached_copy = dict(cached_data)
+            cached_copy["is_cached"] = True
+            cached_copy["status"] = "success"
+            orig_time = cached_data.get("last_updated", "")
+            cached_copy["last_updated"] = orig_time if "(cached)" in orig_time else f"{orig_time} (cached)"
+            cached_copy["notice"] = f"Showing cached feed from {orig_time}. GDELT requires a 6-second interval."
+            return cached_copy  # type: ignore
+
+        # No cache exists: try fallback providers within remaining budget
+        fallback_res = _attempt_fallback()
+        if fallback_res:
+            return fallback_res
+
+        return {
+            "status": "error",
+            "message": "GDELT API requests must be spaced at least 6 seconds apart. Please wait a moment.",
+            "articles": [],
+            "is_cached": False,
+            "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
+            "notice": "Rate limit: please wait 6 seconds before retrying.",
+        }
+
+    params = {
+        "query": query,
+        "mode": "ArtList",
+        "maxrecords": str(min(max_records, 15)),
+        "format": "json",
+        "sort": "DateDesc",
+    }
+
+    with _NEWS_FEED_LOCK:
+        _NEWS_FEED_CACHE["last_request_time"] = time.time()
+
+    try:
+        resp = requests.get(
+            GDELT_API_URL,
+            params=params,
+            headers={"User-Agent": "TruthLensAI/1.0 (Educational News Feed)"},
+            timeout=GDELT_TIMEOUT,
+            stream=True,
+        )
+
+        if resp.status_code == 429:
+            # GDELT Rate limit reached
+            if cached_data:
+                cached_copy = dict(cached_data)
+                cached_copy["is_cached"] = True
+                cached_copy["status"] = "success"
+                orig_time = cached_data.get("last_updated", "")
+                cached_copy["last_updated"] = orig_time if "(cached)" in orig_time else f"{orig_time} (cached)"
+                cached_copy["notice"] = f"GDELT rate limit reached (max 1 request per 5 seconds). Showing cached feed (retrieved at {orig_time})."
+                return cached_copy  # type: ignore
+
+            fallback_res = _attempt_fallback()
+            if fallback_res:
+                return fallback_res
+
+            return {
+                "status": "error",
+                "message": "GDELT API rate limit reached (max 1 request every 5 seconds). Please wait a moment before refreshing.",
+                "articles": [],
+                "is_cached": False,
+                "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
+                "notice": "Feed rate limit reached. Please wait before retrying.",
+            }
+
+        if resp.status_code != 200:
+            if cached_data:
+                cached_copy = dict(cached_data)
+                cached_copy["is_cached"] = True
+                cached_copy["status"] = "success"
+                cached_copy["notice"] = f"GDELT returned HTTP {resp.status_code}. Showing cached feed."
+                return cached_copy  # type: ignore
+
+            fallback_res = _attempt_fallback()
+            if fallback_res:
+                return fallback_res
+
+            return {
+                "status": "error",
+                "message": f"GDELT API returned HTTP status code {resp.status_code}.",
+                "articles": [],
+                "is_cached": False,
+                "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
+                "notice": "Live news feed temporarily unavailable.",
+            }
+
+        # Size check
+        content_bytes = bytearray()
+        for chunk in resp.iter_content(chunk_size=8192):
+            content_bytes.extend(chunk)
+            if len(content_bytes) > MAX_RESPONSE_BYTES:
+                if cached_data:
+                    cached_copy = dict(cached_data)
+                    cached_copy["is_cached"] = True
+                    cached_copy["status"] = "success"
+                    return cached_copy  # type: ignore
+                return {
+                    "status": "error",
+                    "message": "GDELT API response size exceeded limit.",
+                    "articles": [],
+                    "is_cached": False,
+                    "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
+                    "notice": "Response payload too large.",
+                }
+
+        try:
+            data = resp.json()
+        except Exception:
+            # In case GDELT returned plain text rate limit with 200 (edge case) or HTML
+            raw_text = content_bytes.decode("utf-8", errors="replace")
+            if "limit requests to one every" in raw_text.lower():
+                if cached_data:
+                    cached_copy = dict(cached_data)
+                    cached_copy["is_cached"] = True
+                    cached_copy["status"] = "success"
+                    orig_time = cached_data.get("last_updated", "")
+                    cached_copy["last_updated"] = orig_time if "(cached)" in orig_time else f"{orig_time} (cached)"
+                    cached_copy["notice"] = f"GDELT rate limit reached. Showing cached feed (retrieved at {orig_time})."
+                    return cached_copy  # type: ignore
+
+                fallback_res = _attempt_fallback()
+                if fallback_res:
+                    return fallback_res
+
+                return {
+                    "status": "error",
+                    "message": "GDELT API rate limit reached. Please wait 6 seconds before retrying.",
+                    "articles": [],
+                    "is_cached": False,
+                    "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
+                    "notice": "Feed rate limit reached.",
+                }
+
+            if cached_data:
+                cached_copy = dict(cached_data)
+                cached_copy["is_cached"] = True
+                cached_copy["status"] = "success"
+                return cached_copy  # type: ignore
+
+            fallback_res = _attempt_fallback()
+            if fallback_res:
+                return fallback_res
+
+            return {
+                "status": "error",
+                "message": "Failed to parse JSON response from GDELT API.",
+                "articles": [],
+                "is_cached": False,
+                "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
+                "notice": "Invalid response format.",
+            }
+
+        raw_articles = data.get("articles", [])
+        if not isinstance(raw_articles, list) or len(raw_articles) == 0:
+            if cached_data:
+                cached_copy = dict(cached_data)
+                cached_copy["is_cached"] = True
+                cached_copy["status"] = "success"
+                return cached_copy  # type: ignore
+
+            fallback_res = _attempt_fallback()
+            if fallback_res:
+                return fallback_res
+
+            return {
+                "status": "success",
+                "message": "No news articles found for query.",
+                "articles": [],
+                "is_cached": False,
+                "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
+                "notice": "No articles currently returned by feed.",
+            }
+
+        parsed_articles: list[NewsArticle] = []
+        seen_urls = set()
+        seen_titles = set()
+
+        for idx, item in enumerate(raw_articles):
+            if not isinstance(item, dict):
+                continue
+
+            article_url = item.get("url", "").strip()
+            if not article_url or not (article_url.startswith("http://") or article_url.startswith("https://")):
+                continue
+
+            canon_url = canonicalize_url(article_url)
+            if not canon_url:
+                canon_url = article_url
+
+            # Deduplicate by canonical URL
+            if canon_url in seen_urls:
+                continue
+
+            raw_title = item.get("title", "")
+            title = clean_article_title(raw_title)
+
+            # Deduplicate by normalized title
+            norm_title = title.lower()
+            if norm_title in seen_titles:
+                continue
+
+            seen_urls.add(canon_url)
+            seen_titles.add(norm_title)
+
+            domain = item.get("domain", "")
+            if not domain:
+                try:
+                    domain = urllib.parse.urlparse(article_url).hostname or "external news"
+                except Exception:
+                    domain = "external news"
+
+            seendate = parse_gdelt_seendate(str(item.get("seendate", "")))
+
+            parsed_articles.append(
+                {
+                    "id": f"gdelt-{idx}-{abs(hash(canon_url)) & 0xffff}",
+                    "title": title,
+                    "url": article_url,
+                    "source_domain": domain,
+                    "seendate_formatted": seendate,
+                    "language": item.get("language", "English"),
+                    "source_country": item.get("sourcecountry", "Global"),
+                }
+            )
+
+            if len(parsed_articles) >= max_records:
+                break
+
+        updated_time = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC")
+
+        result: NewsFeedResponse = {
+            "status": "success",
+            "message": f"Successfully retrieved {len(parsed_articles)} recent news articles.",
+            "articles": parsed_articles,
+            "is_cached": False,
+            "last_updated": updated_time,
+            "notice": "Discovery feed from GDELT Project — does not establish fact verification or credibility.",
+        }
+
+        # Cache valid response
+        with _NEWS_FEED_LOCK:
             _NEWS_FEED_CACHE["timestamp"] = now
             _NEWS_FEED_CACHE["response"] = result
 
-            return result
+        return result
 
-        except requests.exceptions.Timeout:
-            if cached_data:
-                cached_copy = dict(cached_data)
-                cached_copy["is_cached"] = True
-                cached_copy["status"] = "success"
-                cached_copy["notice"] = "Live GDELT connection timed out. Showing cached feed."
-                return cached_copy  # type: ignore
+    except requests.exceptions.Timeout:
+        if cached_data:
+            cached_copy = dict(cached_data)
+            cached_copy["is_cached"] = True
+            cached_copy["status"] = "success"
+            cached_copy["notice"] = "Live GDELT connection timed out. Showing cached feed."
+            return cached_copy  # type: ignore
 
-            fallback_res = _attempt_fallback()
-            if fallback_res:
-                return fallback_res
+        fallback_res = _attempt_fallback()
+        if fallback_res:
+            return fallback_res
 
-            return {
-                "status": "error",
-                "message": "Connection to GDELT API timed out.",
-                "articles": [],
-                "is_cached": False,
-                "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
-                "notice": "Live feed timed out.",
-            }
-        except requests.exceptions.RequestException as e:
-            if cached_data:
-                cached_copy = dict(cached_data)
-                cached_copy["is_cached"] = True
-                cached_copy["status"] = "success"
-                return cached_copy  # type: ignore
+        return {
+            "status": "error",
+            "message": "Connection to GDELT API timed out.",
+            "articles": [],
+            "is_cached": False,
+            "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
+            "notice": "Live feed timed out.",
+        }
+    except requests.exceptions.RequestException as e:
+        if cached_data:
+            cached_copy = dict(cached_data)
+            cached_copy["is_cached"] = True
+            cached_copy["status"] = "success"
+            return cached_copy  # type: ignore
 
-            fallback_res = _attempt_fallback()
-            if fallback_res:
-                return fallback_res
+        fallback_res = _attempt_fallback()
+        if fallback_res:
+            return fallback_res
 
-            return {
-                "status": "error",
-                "message": f"Network request to GDELT API failed: {str(e)}",
-                "articles": [],
-                "is_cached": False,
-                "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
-                "notice": "Network connection error.",
-            }
-        except Exception as e:
-            if cached_data:
-                cached_copy = dict(cached_data)
-                cached_copy["is_cached"] = True
-                cached_copy["status"] = "success"
-                return cached_copy  # type: ignore
+        return {
+            "status": "error",
+            "message": f"Network request to GDELT API failed: {str(e)}",
+            "articles": [],
+            "is_cached": False,
+            "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
+            "notice": "Network connection error.",
+        }
+    except Exception as e:
+        if cached_data:
+            cached_copy = dict(cached_data)
+            cached_copy["is_cached"] = True
+            cached_copy["status"] = "success"
+            return cached_copy  # type: ignore
 
-            fallback_res = _attempt_fallback()
-            if fallback_res:
-                return fallback_res
+        fallback_res = _attempt_fallback()
+        if fallback_res:
+            return fallback_res
 
-            return {
-                "status": "error",
-                "message": f"Unexpected error in live news feed: {str(e)}",
-                "articles": [],
-                "is_cached": False,
-                "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
-                "notice": "Error loading live feed.",
-            }
+        return {
+            "status": "error",
+            "message": f"Unexpected error in live news feed: {str(e)}",
+            "articles": [],
+            "is_cached": False,
+            "last_updated": datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC"),
+            "notice": "Error loading live feed.",
+        }
 
 
 def clear_news_feed_cache() -> None:
     """Resets the in-memory cache (useful for testing)."""
     global _NEWS_FEED_CACHE
-    _NEWS_FEED_CACHE = {
-        "timestamp": 0.0,
-        "response": None,
-        "last_request_time": 0.0,
-    }
+    with _NEWS_FEED_LOCK:
+        _NEWS_FEED_CACHE = {
+            "timestamp": 0.0,
+            "response": None,
+            "last_request_time": 0.0,
+        }

@@ -163,10 +163,10 @@
 - [x] **Updated Cloud Deployment Config**:
   - Configured `render.yaml` to use:
     `buildCommand: "pip install -r requirements.txt"`
-    `startCommand: "gunicorn --preload -w 1 --threads 4 --timeout 180 -b 0.0.0.0:$PORT src.app:app"`
+    `startCommand: "gunicorn --preload -w 1 --threads 8 --timeout 180 -b 0.0.0.0:$PORT src.app:app"`
   - Updated production deployment documentation in `docs/security.md`.
 - [x] **Comprehensive Verification**:
-  - Pytest full suite: **139 passed, 0 failed** in **7.14s** (down from 15.38s, >2x faster test execution).
+  - Pytest full suite: **139 passed, 0 failed** in **2.47s** (0 failures, 0 regressions).
   - Hindi safety message verified exact string: `"Unable to assess: this model was trained on English news."`.
   - Predictions unchanged for identical inputs (Reuters: 0.0972, Clickbait: 0.9784).
   - URL security, fact-check, live headlines, and history functionality fully validated.
@@ -178,9 +178,40 @@
 | **Python Import (`src.preprocessing`)** | ~600 ms | **50.9 ms** | **~12x faster** |
 | **Python Import (`src.app`)** | 1,534.1 ms | 1,572.1 ms | Includes model preload & warm-up |
 | **Model Load Time (`load_model()`)** | 111.1 ms (cold per worker) | **0.00 ms (preloaded)** / 133.8 ms cold | Preloaded once at boot |
-| **GET `/` (Homepage render)** | **13,754.2 ms** | **33.1 ms** | **415x faster** |
-| **GET `/health` (Health check)** | 14.2 ms | **16.1 ms** | Instant health check |
+| **GET `/` (Homepage render)** | **13,754.2 ms** | **3.2 - 36.6 ms** | **>400x faster** |
+| **GET `/health` (Health check)** | 14.2 ms | **0.08 - 14.3 ms** | Instant in-memory health check |
 | **POST `/predict` (English paragraph)** | **12,681.4 ms** | **19.7 ms** | **643x faster** |
-| **GET `/api/news-feed`** | 14,665.3 ms | **7,017.8 ms** | Bounded (5s/provider, 10s total cap) |
-| **Pytest Full Suite (`139 tests`)** | 15.38 s | **7.14 s** | **>2x faster test execution** |
+| **POST `/api/predict` (API)** | ~250 ms | **1.31 ms** | **~190x faster** |
+| **GET `/history`** | 22.80 ms | **8.10 - 18.11 ms** | Indexed B-Tree scan (`id DESC LIMIT 50`) |
+| **GET `/performance`** | 40.11 ms | **2.65 - 33.51 ms** | Served from in-memory cache |
+| **GET `/about`** | 26.28 ms | **4.08 - 20.56 ms** | Zero disk I/O, no model load |
+| **GET `/api/news-feed`** | **9,374.29 ms** (9.37s) | **2.00 - 16.09 ms** | **~500x faster, non-blocking** |
+| **Pytest Full Suite (`139 tests`)** | 15.38 s | **2.47 s** | **>6x faster test execution** |
+
+---
+
+### Stage 8: Render Concurrency & Non-Blocking News Feed Optimization (Completed & Verified)
+- [x] **Identified Root Cause of Free-Tier Navigation Stalls**:
+  - When `/api/news-feed` was called on an empty/cold cache, it previously spent up to 9,374 ms synchronously awaiting external GDELT and fallback HTTP responses inside the request thread while holding `_NEWS_FEED_LOCK`.
+  - In single-worker / low-thread environments (like Render free tier), any user clicking "History", "Performance", or "About" while `/api/news-feed` was pending became queued behind that 9.4-second network request.
+  - Furthermore, `base.html` previously loaded Chart.js from an external CDN on every page, and news feed event listeners executed on every page.
+- [x] **Non-Blocking `/api/news-feed` Endpoint**:
+  - `/api/news-feed` now serves cached headlines immediately (`only_cached=True`), returning in **2–16 ms**.
+  - All external provider fetching is offloaded to a single background daemon thread (`start_background_feed_worker()`) started at startup.
+  - If no cache is ready yet, returns an immediate `{ status: "loading" }` response (HTTP 200, < 1ms), and `main.js` automatically retries after 2.5s.
+  - `_NEWS_FEED_LOCK` is never held during `requests.get()`, `time.sleep()`, or network calls; rate limits are checked without blocking.
+- [x] **Page Isolation**:
+  - Live news feed script and refresh handlers restricted strictly to the Home page (`if (feedContentArea)`).
+  - External CDN Chart.js removed from `base.html` and isolated exclusively to `performance.html` scripts block.
+- [x] **Ultra-Cheap Navigation Routes**:
+  - `inject_global_context()` uses in-memory preloaded model state (`_PRELOADED_PIPELINE is not None`) instead of invoking `load_model()` per request.
+  - `init_db()` runs once at boot; SQLite history table indexed on `(id DESC)` and `(timestamp DESC)`.
+  - `/about` and `/performance` perform zero disk reads and zero model re-inspections.
+- [x] **Gunicorn Concurrency Scaled**:
+  - Raised worker threads to 8 in `render.yaml` (`gunicorn --preload -w 1 --threads 8 --timeout 180 -b 0.0.0.0:$PORT src.app:app`).
+- [x] **Verification**:
+  - `pytest -q`: **139 passed, 0 failed in 2.47s**.
+  - `demo_check.ps1`: All 6 checks passed.
+  - Hindi safety string: `"Unable to assess: this model was trained on English news."` verified.
+
 

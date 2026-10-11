@@ -14,8 +14,12 @@ from typing import Any
 from src.config import DB_PATH, ENABLE_LOCAL_HISTORY
 
 
+_DB_INITIALIZED: bool = False
+
+
 def init_db(db_path: Path = DB_PATH) -> None:
-    """Initializes the SQLite database schema if not already present."""
+    """Initializes the SQLite database schema and indexes if not already present."""
+    global _DB_INITIALIZED
     if not ENABLE_LOCAL_HISTORY:
         return
 
@@ -36,7 +40,18 @@ def init_db(db_path: Path = DB_PATH) -> None:
             )
             """
         )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_history_id_desc ON analysis_history(id DESC)
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_history_timestamp_desc ON analysis_history(timestamp DESC)
+            """
+        )
         conn.commit()
+    _DB_INITIALIZED = True
 
 
 def save_history_record(
@@ -53,7 +68,8 @@ def save_history_record(
         return None
 
     try:
-        init_db(db_path)
+        if not _DB_INITIALIZED:
+            init_db(db_path)
         # Store only length-limited excerpt to preserve user privacy
         clean_excerpt = " ".join(text.strip().split())
         excerpt = clean_excerpt[:120] + ("..." if len(clean_excerpt) > 120 else "")

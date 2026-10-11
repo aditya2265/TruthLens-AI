@@ -90,6 +90,6 @@ The language safety engine in `src/language.py` protects against model hallucina
 
 - **Development Notice:** The Flask development server (`debug=True` when `FLASK_ENV=development`) is strictly intended for local development and test execution.
 - **Production WSGI Recommendation:**
-  - **Linux / Cloud Deployments (e.g. Render):** Use `gunicorn --preload -w 1 --threads 4 --timeout 180 -b 0.0.0.0:$PORT src.app:app` (preloads model at boot, keeps single-worker thread pool for in-memory caching and lock serialization).
+  - **Linux / Cloud Deployments (e.g. Render):** Use `gunicorn --preload -w 1 --threads 8 --timeout 180 -b 0.0.0.0:$PORT src.app:app` (preloads model at boot, provides 8 worker threads for high concurrency, with thread-safe in-memory caching and lock serialization).
   - **Windows Deployments:** Use `waitress-serve --port=5000 src.app:app`.
   - Configure `FLASK_ENV=production` and generate a cryptographically strong `SECRET_KEY`.

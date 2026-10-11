@@ -44,9 +44,10 @@ from src.config import (
     STANDARD_DISCLAIMER,
 )
 from src.predict import predict_text, load_model
-from src.news_feed import fetch_gdelt_news, warm_news_feed_cache, get_cached_news_feed
+from src.news_feed import fetch_gdelt_news, start_background_feed_worker, get_cached_news_feed
 from src.factcheck import search_fact_checks
 from src.history import (
+    init_db,
     save_history_record,
     get_recent_history,
     delete_history_record,
@@ -143,8 +144,11 @@ if LEAKAGE_AUDIT_PATH.exists():
     except Exception:
         pass
 
-# 3. Warm feed cache in background thread without delaying server boot
-threading.Thread(target=warm_news_feed_cache, daemon=True, name="feed-cache-warmer").start()
+# 3. Start single background feed worker for periodic cache refreshes
+start_background_feed_worker()
+
+# 4. Initialize SQLite history database schema once at startup
+init_db()
 
 
 @app.before_request
@@ -166,12 +170,11 @@ def _log_request_time(response):
 
 @app.context_processor
 def inject_global_context():
-    """Injects common context into all templates."""
-    pipeline, metadata = load_model()
-    model_loaded = pipeline is not None
+    """Injects common context into all templates from in-memory preloaded data."""
+    model_loaded = _PRELOADED_PIPELINE is not None
     return {
         "model_loaded": model_loaded,
-        "model_metadata": metadata or {},
+        "model_metadata": _PRELOADED_METADATA or {},
         "enable_local_history": ENABLE_LOCAL_HISTORY,
         "standard_disclaimer": STANDARD_DISCLAIMER,
     }
@@ -236,10 +239,10 @@ def handle_predict():
 
 @app.route("/api/news-feed", methods=["GET"])
 def api_news_feed():
-    """API endpoint to fetch or refresh live GDELT news feed."""
+    """API endpoint to fetch or refresh live GDELT news feed without blocking web threads."""
     force_refresh = request.args.get("refresh", "false").lower() in ("true", "1")
-    feed = fetch_gdelt_news(force_refresh=force_refresh)
-    if feed.get("status") == "success":
+    feed = fetch_gdelt_news(force_refresh=force_refresh, only_cached=True)
+    if feed.get("status") in ("success", "loading"):
         status_code = 200
     elif "rate limit" in str(feed.get("message", "")).lower() or "rate limit" in str(feed.get("notice", "")).lower():
         status_code = 429
@@ -330,8 +333,8 @@ def clear_history():
 @app.route("/health", methods=["GET"])
 def health():
     """Safe health check endpoint without exposing sensitive internal data."""
-    pipeline, metadata = load_model()
-    is_ready = pipeline is not None
+    is_ready = _PRELOADED_PIPELINE is not None
+    metadata = _PRELOADED_METADATA or {}
 
     payload = {
         "status": "healthy",
