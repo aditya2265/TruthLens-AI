@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Methodology & About — TruthLens AI{% endblock %}
+
+{% block content %}
+<section class="hero-section" style="text-align: left; margin-bottom: 2rem;">
+  <h1 class="hero-title">Methodology, Architecture &amp; Ethics</h1>
+  <p class="hero-description" style="margin: 0;">
+    TruthLens AI is an educational and research text-classification dashboard developed for a solo IBM-aligned hackathon and college project.
+  </p>
+</section>
+
+<!-- Fundamental Architectural Separation -->
+<section class="dashboard-card">
+  <div class="card-header">
+    <div class="card-title">
+      Three Strictly Separated Analysis Pillars
+    </div>
+  </div>
+  <p style="color: var(--text-secondary); margin-bottom: 1.25rem;">
+    A core principle of TruthLens AI is never conflating distinct forms of analytical reasoning into an arbitrary "truth percentage":
+  </p>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+    <div style="background: var(--bg-secondary); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--border-subtle);">
+      <h3 style="color: var(--cyan-primary); font-size: 1rem; margin-bottom: 0.5rem;">Pillar A: Machine Learning</h3>
+      <p style="font-size: 0.85rem; color: var(--text-secondary);">
+        A scikit-learn pipeline (TF-IDF + Logistic Regression) trained strictly on empirical text distribution patterns. It produces class association scores, not ontological truth determinations.
+      </p>
+    </div>
+    <div style="background: var(--bg-secondary); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--border-subtle);">
+      <h3 style="color: var(--amber-caution); font-size: 1rem; margin-bottom: 0.5rem;">Pillar B: Rules-Based Signals</h3>
+      <p style="font-size: 0.85rem; color: var(--text-secondary);">
+        Transparent heuristic checks for emotional formatting: uppercase ratio, multiple punctuation, urgency bait, and sensationalist phrases. These signals never alter the machine-learning prediction.
+      </p>
+    </div>
+    <div style="background: var(--bg-secondary); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--border-subtle);">
+      <h3 style="color: var(--reliable-color); font-size: 1rem; margin-bottom: 0.5rem;">Pillar C: External Evidence</h3>
+      <p style="font-size: 0.85rem; color: var(--text-secondary);">
+        Actionable human-in-the-loop verification steps. The software encourages users to cross-reference primary sources, authoritative fact-checking databases, and official documents.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- Dataset Provenance & Leakage Audit -->
+<section class="dashboard-card">
+  <div class="card-header">
+    <div class="card-title">
+      Dataset Provenance &amp; Leakage Mitigation
+    </div>
+  </div>
+  <div style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.6;">
+    <p style="margin-bottom: 1rem;">
+      <strong>Corpus Source:</strong> Fake and Real News Dataset (ISOT / Clément Bisaillon), distributed on Kaggle under a CC0 Public Domain declaration. Contains 44,898 raw articles (23,481 fake and 21,417 true).
+    </p>
+    <p style="margin-bottom: 1rem;">
+      <strong>The Dateline Leakage Challenge:</strong> In the raw dataset, real articles originate from Reuters wire reports and almost universally lead with geographic datelines like <code>WASHINGTON (Reuters) -</code>. Uncleaned models trivially memorize the word "Reuters" and achieve deceptive 99%+ accuracy without learning general linguistic patterns.
+    </p>
+    <p style="margin-bottom: 1rem;">
+      <strong>Our Mitigation:</strong> In <code>src/preprocessing.py</code>, journalistic datelines and boilerplate photo credits are removed via regular expressions before feature extraction. Furthermore, exact duplicate texts and syndicated stories are grouped via SimHash prefix clusters so they never cross train/validation/test splits.
+    </p>
+  </div>
+</section>
+
+<!-- Ethical Boundaries & Safe Labeling -->
+<section class="dashboard-card">
+  <div class="card-header">
+    <div class="card-title">
+      Ethical Constraints &amp; Cautious Labeling
+    </div>
+  </div>
+  <div style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.6;">
+    <p style="margin-bottom: 1rem;">
+      TruthLens AI deliberately avoids absolute phrasing like "This news is 100% fake" or "This article is verified true". Instead, the interface reports:
+    </p>
+    <ul style="margin-left: 1.5rem; margin-bottom: 1rem;">
+      <li><strong>"Reliable-style patterns"</strong> — Linguistic and vocabulary patterns aligning with the professional journalistic training set.</li>
+      <li><strong>"Misleading-style patterns"</strong> — Linguistic and editorial patterns aligning with flagged unverified sources.</li>
+      <li><strong>"Uncertain / Unable to assess"</strong> — Triggered when decision margin is narrow (44%-56%) or vocabulary novelty is high.</li>
+    </ul>
+    <p style="color: var(--text-muted); font-size: 0.85rem;">
+      <strong>Mandatory Disclaimer:</strong> "This result is an automated text-classification assessment, not independent fact verification. The model can make mistakes and may reflect biases or limitations in its training data. Check important claims against reliable, independent sources."
+    </p>
+  </div>
+</section>
+
+{% endblock %}

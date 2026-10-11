@@ -1,0 +1,87 @@
+flowchart TD
+    subgraph Client["Client Layer (Browser)"]
+        UI["TruthLens Dashboard (HTML5 / Vanilla CSS / JS)"]
+        Tabs["Input Tabs (Article URL / Paste Text / OCR Disabled)"]
+        Theme["Theme Engine (Light / Dark via CSS Variables)"]
+        FeedUI["Live News Feed (GDELT Cards + Dynamic Refresh)"]
+        ResultUI["Results Panel (ML Patterns / Clickbait / Fact-Checks / Checklist)"]
+    end
+
+    subgraph SecurityGate["Flask Security Gate"]
+        CSRF["Flask-WTF CSRF Protection (All POSTs)"]
+        Bounds["Input Bounding (Max 15k Chars, Truncation Alert)"]
+        Sanitize["Output Escaping & Information Disclosure Guard"]
+    end
+
+    subgraph LangSafety["Stage 5: Language Safety Guard (src/language.py)"]
+        ScriptDetect["Unicode Script Detection (Devanagari, Cyrillic, CJK, Arabic)"]
+        StopwordDetect["Foreign Stopwords (Spanish, French, German, Hinglish)"]
+        LangBypass{"Is Supported English?"}
+        LangNotice["Short-Circuit Notice: 'Unable to assess: this model was trained on English news.'"]
+    end
+
+    subgraph Ingestion["Ingestion & External Data Providers"]
+        URLFetcher["src/url_fetcher.py (Trafilatura Extraction)"]
+        SSRF["Strict SSRF Guard (RFC 1918, Loopback, Cloud Metadata, DNS Audit)"]
+        GDELT["src/news_feed.py (GDELT 2.0 DOC API Feed + 5s Rate Throttle)"]
+        FactCheck["src/factcheck.py (Google Fact Check Tools API / claims:search)"]
+    end
+
+    subgraph CoreEngine["Core Assessment Engine (src/predict.py)"]
+        Preproc["src/preprocessing.py (Dateline Regex & SimHash Grouping)"]
+        Clickbait["src/clickbait.py (Rules-Based Sensationalism Analyzer)"]
+        ModelPipeline["Trained Pipeline (TF-IDF Vectorizer + LogisticRegression)"]
+        Explainer["src/explain.py (Additive Token Attribution: TF-IDF x Beta)"]
+        Uncertainty["Uncertainty & Vocabulary Novelty Evaluator (<20% Overlap)"]
+        History["src/history.py (Local Parameterized SQLite Storage)"]
+    end
+
+    subgraph Storage["Persisted Data & Artifacts"]
+        ModelArtifact["models/truthlens_model.joblib"]
+        Metadata["models/model_metadata.json"]
+        SQLiteDB["instance/truthlens_history.sqlite3"]
+    end
+
+    %% Client Interactions
+    UI --> Tabs
+    UI --> Theme
+    UI --> FeedUI
+    Tabs -->|Submit Form + CSRF| CSRF
+    CSRF --> Bounds
+    Bounds --> Sanitize
+
+    %% Routing to URL Fetcher or Direct Text
+    Sanitize -->|URL Mode| SSRF
+    SSRF --> URLFetcher
+    URLFetcher -->|Extracted Article Text| ScriptDetect
+
+    Sanitize -->|Text Mode| ScriptDetect
+
+    %% Language Safety Gate
+    ScriptDetect --> StopwordDetect
+    StopwordDetect --> LangBypass
+    LangBypass -->|No: Non-English / Hindi| LangNotice
+    LangNotice -->|Bypass Model Execution| ResultUI
+
+    LangBypass -->|Yes: English News| Preproc
+    Preproc --> ModelPipeline
+    ModelPipeline --> ModelArtifact
+    ModelArtifact --> Metadata
+    ModelPipeline --> Uncertainty
+    ModelPipeline --> Explainer
+
+    %% Independent Clickbait Analysis (English only)
+    LangBypass -->|Yes| Clickbait
+
+    %% External Providers
+    GDELT --> FeedUI
+    URLFetcher -.->|Title Query| FactCheck
+    Preproc -.->|Headline Query| FactCheck
+    FactCheck --> ResultUI
+
+    %% Engine Aggregation to UI
+    Clickbait --> ResultUI
+    Uncertainty --> ResultUI
+    Explainer --> ResultUI
+    CoreEngine --> History
+    History --> SQLiteDB

@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: truthlens-ai
+    env: python
+    buildCommand: "pip install -r requirements.txt && python -m src.train"
+    startCommand: "gunicorn -w 1 --threads 4 -b 0.0.0.0:$PORT src.app:app"
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENABLE_LOCAL_HISTORY
+        value: "false"
+      - key: MAX_INPUT_LENGTH
+        value: "15000"
+      - key: GOOGLE_FACTCHECK_API_KEY
+        sync: false

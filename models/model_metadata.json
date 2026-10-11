@@ -1,0 +1,139 @@
+{
+  "model_version": "1.0.0",
+  "model_name": "TF-IDF (1-2 grams, max 25k) + LogisticRegression (C=1.0)",
+  "dataset_name": "Fake and Real News Dataset (ISOT / Clement Bisaillon)",
+  "dataset_license": "CC0: Public Domain (as declared on Kaggle source)",
+  "timestamp_utc": "2026-10-10T10:15:10.575694+00:00",
+  "total_training_duration_seconds": 148.11,
+  "random_state": 42,
+  "splits": {
+    "train_n": 31016,
+    "val_n": 6636,
+    "test_n": 6615,
+    "total_cleaned_n": 44267
+  },
+  "preprocessing": {
+    "dateline_removal": true,
+    "html_strip": true,
+    "whitespace_normalization": true,
+    "deduplication_method": "Exact hash + SimHash prefix clustering"
+  },
+  "vocabulary_size": 25000,
+  "validation_comparison": {
+    "LogisticRegression": {
+      "accuracy": 0.986,
+      "precision": 0.9876,
+      "recall": 0.985,
+      "f1": 0.9863,
+      "macro_f1": 0.986,
+      "weighted_f1": 0.986,
+      "confusion_matrix": {
+        "tn": 3196,
+        "fp": 42,
+        "fn": 51,
+        "tp": 3347,
+        "matrix": [
+          [
+            3196,
+            42
+          ],
+          [
+            51,
+            3347
+          ]
+        ]
+      },
+      "per_class": {
+        "reliable_class_0": {
+          "precision": 0.9843,
+          "recall": 0.987,
+          "f1": 0.9857
+        },
+        "misleading_class_1": {
+          "precision": 0.9876,
+          "recall": 0.985,
+          "f1": 0.9863
+        }
+      },
+      "brier_score": 0.0166
+    },
+    "LinearSVC": {
+      "accuracy": 0.9911,
+      "precision": 0.992,
+      "recall": 0.9906,
+      "f1": 0.9913,
+      "macro_f1": 0.9911,
+      "weighted_f1": 0.9911,
+      "confusion_matrix": {
+        "tn": 3211,
+        "fp": 27,
+        "fn": 32,
+        "tp": 3366,
+        "matrix": [
+          [
+            3211,
+            27
+          ],
+          [
+            32,
+            3366
+          ]
+        ]
+      },
+      "per_class": {
+        "reliable_class_0": {
+          "precision": 0.9901,
+          "recall": 0.9917,
+          "f1": 0.9909
+        },
+        "misleading_class_1": {
+          "precision": 0.992,
+          "recall": 0.9906,
+          "f1": 0.9913
+        }
+      }
+    }
+  },
+  "calibration": {
+    "is_calibrated": true,
+    "validation_brier_score": 0.0166,
+    "score_interpretation": "Empirical probability from logistic sigmoid; reliable calibration evaluated on validation split."
+  },
+  "held_out_test_metrics": {
+    "accuracy": 0.9855,
+    "precision": 0.9883,
+    "recall": 0.9836,
+    "f1": 0.9859,
+    "macro_f1": 0.9855,
+    "weighted_f1": 0.9855,
+    "confusion_matrix": {
+      "tn": 3152,
+      "fp": 40,
+      "fn": 56,
+      "tp": 3367,
+      "matrix": [
+        [
+          3152,
+          40
+        ],
+        [
+          56,
+          3367
+        ]
+      ]
+    },
+    "per_class": {
+      "reliable_class_0": {
+        "precision": 0.9825,
+        "recall": 0.9875,
+        "f1": 0.985
+      },
+      "misleading_class_1": {
+        "precision": 0.9883,
+        "recall": 0.9836,
+        "f1": 0.9859
+      }
+    },
+    "brier_score": 0.0174
+  }
+}

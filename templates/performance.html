@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+
+{% block title %}Model Performance & Evaluation — TruthLens AI{% endblock %}
+
+{% block content %}
+<section class="hero-section" style="text-align: left; margin-bottom: 2rem;">
+  <h1 class="hero-title">Empirical Model Performance &amp; Evaluation</h1>
+  <p class="hero-description" style="margin: 0;">
+    Genuine held-out test evaluation results, data-quality metrics, and leakage audit findings. No fabricated scores or synthetic performance data.
+  </p>
+</section>
+
+{% if evaluation %}
+  <!-- Top Metrics Bar -->
+  <section class="dashboard-card">
+    <div class="card-header">
+      <div class="card-title">
+        Held-Out Test Set Performance (Cleaned Split, n = {{ evaluation.splits.test_n }})
+      </div>
+      <div style="font-size: 0.85rem; color: var(--text-muted);">
+        Evaluated once after model freezing | Pipeline: {{ evaluation.model_name }}
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+      <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-subtle); text-align: center;">
+        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Test Accuracy</div>
+        <div style="font-size: 1.75rem; font-weight: 800; color: var(--cyan-primary); font-family: var(--font-mono);">
+          {{ (evaluation.held_out_test_metrics.accuracy * 100) | round(2) }}%
+        </div>
+      </div>
+
+      <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-subtle); text-align: center;">
+        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Test F1 Score</div>
+        <div style="font-size: 1.75rem; font-weight: 800; color: var(--teal-accent); font-family: var(--font-mono);">
+          {{ (evaluation.held_out_test_metrics.f1 * 100) | round(2) }}%
+        </div>
+      </div>
+
+      <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-subtle); text-align: center;">
+        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Macro F1</div>
+        <div style="font-size: 1.75rem; font-weight: 800; color: #38bdf8; font-family: var(--font-mono);">
+          {{ (evaluation.held_out_test_metrics.macro_f1 * 100) | round(2) }}%
+        </div>
+      </div>
+
+      <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-subtle); text-align: center;">
+        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Precision</div>
+        <div style="font-size: 1.75rem; font-weight: 800; color: #a78bfa; font-family: var(--font-mono);">
+          {{ (evaluation.held_out_test_metrics.precision * 100) | round(2) }}%
+        </div>
+      </div>
+
+      <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-subtle); text-align: center;">
+        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Recall</div>
+        <div style="font-size: 1.75rem; font-weight: 800; color: #f472b6; font-family: var(--font-mono);">
+          {{ (evaluation.held_out_test_metrics.recall * 100) | round(2) }}%
+        </div>
+      </div>
+
+      <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-subtle); text-align: center;">
+        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Brier Score (Calibrated)</div>
+        <div style="font-size: 1.75rem; font-weight: 800; color: var(--reliable-color); font-family: var(--font-mono);">
+          {{ evaluation.held_out_test_metrics.brier_score }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+      <div style="background: var(--bg-secondary); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--border-subtle);">
+        <h3 style="font-size: 0.95rem; color: #ffffff; margin-bottom: 1rem; text-align: center;">Stratified Group-Aware Splits</h3>
+        <div style="max-height: 240px; display: flex; justify-content: center;">
+          <canvas id="splitsChart"></canvas>
+        </div>
+      </div>
+
+      <div style="background: var(--bg-secondary); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--border-subtle);">
+        <h3 style="font-size: 0.95rem; color: #ffffff; margin-bottom: 1rem; text-align: center;">Per-Class Held-Out Test Metrics</h3>
+        <div style="max-height: 240px; display: flex; justify-content: center;">
+          <canvas id="metricsChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Confusion Matrix & Class Breakdown -->
+  <section class="dashboard-card">
+    <div class="card-header">
+      <div class="card-title">Confusion Matrix &amp; Error Analysis</div>
+      <div style="font-size: 0.85rem; color: var(--text-muted);">
+        Cleaned Test Set: n = {{ evaluation.splits.test_n }}
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+      <div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Actual \ Predicted</th>
+              <th>Pred: Reliable (0)</th>
+              <th>Pred: Misleading (1)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Actual: Reliable (0)</strong></td>
+              <td style="color: var(--reliable-color); font-weight: 700;">{{ evaluation.held_out_test_metrics.confusion_matrix.tn }} (True Neg)</td>
+              <td style="color: var(--amber-caution); font-weight: 700;">{{ evaluation.held_out_test_metrics.confusion_matrix.fp }} (False Pos)</td>
+            </tr>
+            <tr>
+              <td><strong>Actual: Misleading (1)</strong></td>
+              <td style="color: var(--amber-caution); font-weight: 700;">{{ evaluation.held_out_test_metrics.confusion_matrix.fn }} (False Neg)</td>
+              <td style="color: var(--misleading-color); font-weight: 700;">{{ evaluation.held_out_test_metrics.confusion_matrix.tp }} (True Pos)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Class Label</th>
+              <th>Precision</th>
+              <th>Recall</th>
+              <th>F1 Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Reliable-style Patterns</td>
+              <td>{{ (evaluation.held_out_test_metrics.per_class.reliable_class_0.precision * 100) | round(2) }}%</td>
+              <td>{{ (evaluation.held_out_test_metrics.per_class.reliable_class_0.recall * 100) | round(2) }}%</td>
+              <td>{{ (evaluation.held_out_test_metrics.per_class.reliable_class_0.f1 * 100) | round(2) }}%</td>
+            </tr>
+            <tr>
+              <td>Misleading-style Patterns</td>
+              <td>{{ (evaluation.held_out_test_metrics.per_class.misleading_class_1.precision * 100) | round(2) }}%</td>
+              <td>{{ (evaluation.held_out_test_metrics.per_class.misleading_class_1.recall * 100) | round(2) }}%</td>
+              <td>{{ (evaluation.held_out_test_metrics.per_class.misleading_class_1.f1 * 100) | round(2) }}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Validation Comparison -->
+  <section class="dashboard-card">
+    <div class="card-header">
+      <div class="card-title">Validation Model Comparison (n = {{ evaluation.splits.val_n }})</div>
+    </div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Model Candidate</th>
+          <th>Accuracy</th>
+          <th>Precision</th>
+          <th>Recall</th>
+          <th>F1 Score</th>
+          <th>Macro F1</th>
+          <th>Selection Decision</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background: rgba(14, 165, 233, 0.08);">
+          <td><strong>Logistic Regression (Baseline)</strong></td>
+          <td>{{ (evaluation.validation_comparison.LogisticRegression.accuracy * 100) | round(2) }}%</td>
+          <td>{{ (evaluation.validation_comparison.LogisticRegression.precision * 100) | round(2) }}%</td>
+          <td>{{ (evaluation.validation_comparison.LogisticRegression.recall * 100) | round(2) }}%</td>
+          <td>{{ (evaluation.validation_comparison.LogisticRegression.f1 * 100) | round(2) }}%</td>
+          <td>{{ (evaluation.validation_comparison.LogisticRegression.macro_f1 * 100) | round(2) }}%</td>
+          <td><strong style="color: var(--cyan-primary);">SELECTED (Calibrated Probabilities &amp; Linear Explanations)</strong></td>
+        </tr>
+        <tr>
+          <td><strong>LinearSVC</strong></td>
+          <td>{{ (evaluation.validation_comparison.LinearSVC.accuracy * 100) | round(2) }}%</td>
+          <td>{{ (evaluation.validation_comparison.LinearSVC.precision * 100) | round(2) }}%</td>
+          <td>{{ (evaluation.validation_comparison.LinearSVC.recall * 100) | round(2) }}%</td>
+          <td>{{ (evaluation.validation_comparison.LinearSVC.f1 * 100) | round(2) }}%</td>
+          <td>{{ (evaluation.validation_comparison.LinearSVC.macro_f1 * 100) | round(2) }}%</td>
+          <td style="color: var(--text-muted);">Comparison baseline (No calibrated probabilities)</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Leakage Audit & Global Coefficients -->
+  {% if leakage %}
+    <section class="dashboard-card">
+      <div class="card-header">
+        <div class="card-title">Leakage Audit: Top 10 Global Model Coefficients</div>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+          {{ leakage.label }}
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+        <div>
+          <h4 style="color: var(--reliable-color); font-size: 0.95rem; margin-bottom: 0.5rem;">Top Reliable-Associated Features (Class 0)</h4>
+          <div class="token-list">
+            {% for item in leakage.top_reliable_features[:10] %}
+              <div class="token-row reliable">
+                <span>"{{ item.token }}"</span>
+                <span style="color: var(--reliable-color);">{{ item.coefficient }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div>
+          <h4 style="color: var(--misleading-color); font-size: 0.95rem; margin-bottom: 0.5rem;">Top Misleading-Associated Features (Class 1)</h4>
+          <div class="token-list">
+            {% for item in leakage.top_misleading_features[:10] %}
+              <div class="token-row misleading">
+                <span>"{{ item.token }}"</span>
+                <span style="color: var(--misleading-color);">+{{ item.coefficient }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </section>
+  {% endif %}
+
+{% else %}
+  <section class="dashboard-card" style="border-color: rgba(245, 158, 11, 0.4);">
+    <div class="card-header">
+      <div class="card-title" style="color: #fbbf24;">⚠️ Model Training Required</div>
+    </div>
+    <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+      No evaluation artifacts were found. To generate genuine performance metrics, please train the model on the validated dataset:
+    </p>
+    <pre style="background: var(--bg-input); padding: 1rem; border-radius: 6px; color: #38bdf8;">python -m src.train</pre>
+  </section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if evaluation %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    // Splits Donut Chart
+    const splitsCtx = document.getElementById("splitsChart");
+    if (splitsCtx) {
+      new Chart(splitsCtx, {
+        type: "doughnut",
+        data: {
+          labels: ["Train Split (70%)", "Validation (15%)", "Held-Out Test (15%)"],
+          datasets: [{
+            data: [{{ evaluation.splits.train_n }}, {{ evaluation.splits.val_n }}, {{ evaluation.splits.test_n }}],
+            backgroundColor: ["#0ea5e9", "#14b8a6", "#a855f7"],
+            borderWidth: 1,
+            borderColor: "#1e293b"
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: "#94a3b8", font: { size: 11 } } }
+          }
+        }
+      });
+    }
+
+    // Per-class Metrics Bar Chart
+    const metricsCtx = document.getElementById("metricsChart");
+    if (metricsCtx) {
+      new Chart(metricsCtx, {
+        type: "bar",
+        data: {
+          labels: ["Precision", "Recall", "F1 Score"],
+          datasets: [
+            {
+              label: "Reliable-style (0)",
+              data: [
+                {{ (evaluation.held_out_test_metrics.per_class.reliable_class_0.precision * 100) | round(1) }},
+                {{ (evaluation.held_out_test_metrics.per_class.reliable_class_0.recall * 100) | round(1) }},
+                {{ (evaluation.held_out_test_metrics.per_class.reliable_class_0.f1 * 100) | round(1) }}
+              ],
+              backgroundColor: "rgba(16, 185, 129, 0.7)",
+              borderColor: "#10b981",
+              borderWidth: 1
+            },
+            {
+              label: "Misleading-style (1)",
+              data: [
+                {{ (evaluation.held_out_test_metrics.per_class.misleading_class_1.precision * 100) | round(1) }},
+                {{ (evaluation.held_out_test_metrics.per_class.misleading_class_1.recall * 100) | round(1) }},
+                {{ (evaluation.held_out_test_metrics.per_class.misleading_class_1.f1 * 100) | round(1) }}
+              ],
+              backgroundColor: "rgba(244, 63, 94, 0.7)",
+              borderColor: "#f43f5e",
+              borderWidth: 1
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              min: 90,
+              max: 100,
+              ticks: { color: "#94a3b8" },
+              grid: { color: "rgba(255,255,255,0.05)" }
+            },
+            x: {
+              ticks: { color: "#94a3b8" },
+              grid: { display: false }
+            }
+          },
+          plugins: {
+            legend: { labels: { color: "#94a3b8" } }
+          }
+        }
+      });
+    }
+  });
+</script>
+{% endif %}
+{% endblock %}

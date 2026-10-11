@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="TruthLens — Fake News & Misleading Content Detector. Analyzes writing patterns, transparent clickbait cues, and related fact-checks.">
+  <title>{% block title %}Fake News &amp; Misleading Content Detector — TruthLens{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- Navigation Header -->
+  <header class="header-nav">
+    <div class="nav-container">
+      <div class="brand-wrapper">
+        <a href="{{ url_for('index') }}" class="brand-title" style="display: flex; align-items: center; gap: 0.6rem;">
+          <div class="brand-logo" aria-hidden="true">TL</div>
+          <span>Truth<span>Lens</span></span>
+        </a>
+      </div>
+
+      <nav aria-label="Main Navigation">
+        <ul class="nav-links">
+          <li><a href="{{ url_for('index') }}" class="nav-link {% if request.endpoint == 'index' %}active{% endif %}">Home</a></li>
+          <li><a href="{{ url_for('history') }}" class="nav-link {% if request.endpoint == 'history' %}active{% endif %}">History</a></li>
+          <li><a href="{{ url_for('performance') }}" class="nav-link {% if request.endpoint == 'performance' %}active{% endif %}">Performance</a></li>
+          <li><a href="{{ url_for('about') }}" class="nav-link {% if request.endpoint == 'about' %}active{% endif %}">About</a></li>
+          <li>
+            <button type="button" class="theme-toggle-btn" id="theme-toggle-btn" aria-label="Toggle dark/light theme">
+              <span id="theme-icon">🌙</span>
+              <span id="theme-text">Dark Mode</span>
+            </button>
+          </li>
+          <li>
+            {% if model_loaded %}
+              <span class="model-badge" title="Trained Pipeline Loaded (v{{ model_metadata.get('model_version', '1.0') }})">
+                <span class="status-dot"></span> Model Ready
+              </span>
+            {% else %}
+              <span class="model-badge" style="background: var(--amber-bg); color: var(--amber-caution); border-color: var(--amber-border);" title="Run python -m src.train">
+                <span class="status-dot offline"></span> Setup Needed
+              </span>
+            {% endif %}
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Flash Messages -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div style="max-width: 1150px; margin: 1rem auto 0; padding: 0 1.5rem;">
+        {% for category, message in messages %}
+          <div class="alert-box alert-amber" role="alert">
+            <span>⚠️</span>
+            <div>{{ message }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- Main Body Content -->
+  <main class="main-wrapper">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer-wrapper">
+    <div style="max-width: 1150px; margin: 0 auto;">
+      <p style="margin-bottom: 0.5rem; font-weight: 700; color: var(--text-primary);">
+        TruthLens — Fake News &amp; Misleading Content Detector
+      </p>
+      <p style="max-width: 750px; margin: 0 auto; line-height: 1.5; color: var(--text-muted); font-size: 0.82rem;">
+        {{ standard_disclaimer }}
+      </p>
+    </div>
+  </footer>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

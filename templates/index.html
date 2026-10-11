@@ -1,0 +1,738 @@
+{% extends "base.html" %}
+
+{% block title %}Fake News &amp; Misleading Content Detector — TruthLens{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<section class="hero-section">
+  <div class="hero-pill">Fake News &amp; Misleading Content Detector</div>
+  <h1 class="hero-title">Check it before you <span class="highlight">believe</span> it.</h1>
+  <p class="hero-subtitle">
+    Analyzes writing patterns and shows related fact-checks. Does not verify truth by itself.
+  </p>
+</section>
+
+<!-- Centered Input Analyzer Card -->
+<section class="dashboard-card analyzer-card" aria-label="Content Analyzer">
+  <!-- Tab Navigation -->
+  <div class="tab-nav" role="tablist">
+    <button type="button" class="tab-btn {% if active_tab != 'text' %}active{% endif %}" data-tab="url" id="tab-btn-url" role="tab">
+      <span>🔗</span> Article Link (URL)
+    </button>
+    <button type="button" class="tab-btn {% if active_tab == 'text' %}active{% endif %}" data-tab="text" id="tab-btn-text" role="tab">
+      <span>📝</span> Paste Text
+    </button>
+    <button type="button" class="tab-btn disabled" data-tab="image" id="tab-btn-image" role="tab" disabled title="Image OCR Analysis coming soon">
+      <span>🖼️</span> Image Upload <span class="tab-badge">Coming soon (OCR)</span>
+    </button>
+  </div>
+
+  <!-- Tab 1: URL Pane -->
+  <div class="tab-pane {% if active_tab != 'text' %}active{% endif %}" id="tab-url" role="tabpanel">
+    <form method="POST" action="{{ url_for('handle_predict') }}" class="analyzing-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <input type="hidden" name="input_mode" value="url"/>
+
+      <div class="url-input-wrapper">
+        <input
+          type="url"
+          name="article_url"
+          class="url-input"
+          placeholder="Paste article link (e.g. https://example.com/news-story)..."
+          value="{{ submitted_url or '' }}"
+          required
+        />
+        <button type="submit" class="btn btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          Analyze Link
+        </button>
+      </div>
+      <div style="font-size: 0.82rem; color: var(--text-muted);">
+        Safely fetches article text using secure server-side extraction.
+      </div>
+    </form>
+  </div>
+
+  <!-- Tab 2: Text Pane -->
+  <div class="tab-pane {% if active_tab == 'text' %}active{% endif %}" id="tab-text" role="tabpanel">
+    <form method="POST" action="{{ url_for('handle_predict') }}" class="analyzing-form" id="analysis-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <input type="hidden" name="input_mode" value="text"/>
+
+      <div class="input-textarea-wrapper">
+        <textarea
+          name="news_text"
+          id="news_text"
+          class="analysis-textarea"
+          placeholder="Paste a headline, full article body, or short claim to analyze..."
+        >{{ submitted_text or '' }}</textarea>
+        
+        <div class="textarea-footer">
+          <span id="char-counter">0 / 15,000 characters</span>
+          <span id="word-counter">0 words</span>
+        </div>
+      </div>
+
+      <div class="btn-group" style="justify-content: flex-end; margin-bottom: 1.5rem;">
+        <button type="button" class="btn btn-secondary" id="clear-btn">Clear</button>
+        <button type="submit" class="btn btn-primary" id="analyze-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          Analyze Text
+        </button>
+      </div>
+    </form>
+
+    <!-- Demonstration Examples -->
+    <div class="demo-section">
+      <div class="demo-title">Test Demonstration Examples</div>
+      <div class="demo-buttons-grid">
+        {% for demo in demo_examples %}
+          <button type="button" class="demo-btn" data-text="{{ demo.text }}" id="{{ demo.id }}">
+            <div class="demo-btn-title">
+              <span>{{ demo.title }}</span>
+              <span class="demo-badge">{{ demo.badge }}</span>
+            </div>
+            <div class="demo-btn-desc">{{ demo.description }}</div>
+          </button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 3: Image Pane (Disabled / Coming Soon) -->
+  <div class="tab-pane" id="tab-image" role="tabpanel">
+    <div style="text-align: center; padding: 2rem 1rem; color: var(--text-muted);">
+      <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🖼️</div>
+      <h3 style="font-size: 1.1rem; color: var(--text-primary); margin-bottom: 0.5rem;">Image OCR Analysis Coming Soon</h3>
+      <p style="font-size: 0.88rem; max-width: 480px; margin: 0 auto; color: var(--text-secondary);">
+        OCR analysis will extract text from screenshots of articles or social posts once OCR engine integration is completed.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- Honest Feature Cards Grid -->
+<section class="features-grid" aria-label="Core Features Overview">
+  <div class="feature-card">
+    <div class="feature-icon">🧠</div>
+    <div class="feature-title">Writing-pattern analysis</div>
+    <div class="feature-desc">
+      Machine learning classifier trained on a labeled news dataset to identify lexical patterns.
+    </div>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon">⚡</div>
+    <div class="feature-title">Sensational-language signals</div>
+    <div class="feature-desc">
+      Transparent rules-based indicators for excessive capitalization, punctuation, and clickbait phrases.
+    </div>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon">🔍</div>
+    <div class="feature-title">Related fact-checks</div>
+    <div class="feature-desc">
+      Searches independent fact-checking databases for matching external evidence.
+    </div>
+  </div>
+</section>
+
+<!-- Live News Feed Section (GDELT DOC API) -->
+<section class="dashboard-card" style="margin-top: 2rem;" aria-label="Live News Feed">
+  <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+    <div>
+      <div class="card-title">
+        <span>📡</span> Live News Feed
+      </div>
+      <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0.2rem;">
+        Global news dispatches from GDELT Project. Click <strong>Analyze</strong> on any article to run automated pattern evaluation.
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+      <span class="hero-pill" style="margin: 0; font-size: 0.75rem;" id="feed-updated-label">
+        {% if news_feed and news_feed.last_updated %}
+          Feed Retrieved: {{ news_feed.last_updated }}
+        {% else %}
+          Feed Retrieved: --
+        {% endif %}
+      </span>
+      <button type="button" class="theme-toggle-btn" id="btn-refresh-feed" style="font-size: 0.8rem; padding: 0.4rem 0.75rem;" title="Refresh live news feed">
+        🔄 Refresh
+      </button>
+    </div>
+  </div>
+
+  <div style="font-size: 0.78rem; color: var(--text-muted); background: var(--bg-card-hover); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.75rem; margin-bottom: 1.25rem;">
+    ℹ️ <strong>Transparency Notice:</strong> This feed provides news discovery via public GDELT metadata. Inclusion in this feed does not verify claims or establish article credibility.
+  </div>
+
+  <div id="news-feed-content-area">
+    {% if news_feed and news_feed.status == "success" and news_feed.articles %}
+      <div class="news-feed-grid" id="news-feed-container">
+        {% for article in news_feed.articles %}
+          <div class="feed-item-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.78rem;">
+              <span class="feed-domain-badge">{{ article.source_domain }}</span>
+              <span style="color: var(--text-muted);" title="Article Publication Date">Published: {{ article.seendate_formatted }}</span>
+            </div>
+            <h4 class="feed-article-title">
+              <a href="{{ article.url }}" target="_blank" rel="noopener noreferrer">
+                {{ article.title }} ↗
+              </a>
+            </h4>
+            <div style="margin-top: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 0.75rem; color: var(--text-muted);">{{ article.source_country }}</span>
+              <button type="button" class="feed-analyze-btn" data-url="{{ article.url }}">
+                ⚡ Analyze
+              </button>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% elif news_feed and news_feed.status == "success" and not news_feed.articles %}
+      <div id="news-feed-empty-box" class="alert-box alert-info" style="margin-top: 0.5rem;">
+        <span style="font-size: 1.2rem;">ℹ️</span>
+        <div>
+          <strong>No Articles Found:</strong>
+          <div>{{ news_feed.notice if news_feed else "No recent articles returned by feed query." }}</div>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
+            Try clicking Refresh in a few moments.
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <div id="news-feed-error-box" class="alert-box alert-amber" style="margin-top: 0.5rem;">
+        <span style="font-size: 1.2rem;">⚠️</span>
+        <div>
+          <strong>Live News Feed Notice:</strong>
+          <div id="feed-error-notice">{{ news_feed.notice if news_feed else "Live news feed temporarily unavailable." }}</div>
+          <div id="feed-error-message" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
+            {{ news_feed.message if news_feed else "Could not retrieve articles from GDELT API." }}
+          </div>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</section>
+
+
+<!-- Results Panel -->
+{% if result %}
+  {% if result.status == "success" %}
+    <section class="dashboard-card" id="results-panel" style="margin-top: 2.5rem;" aria-label="Analysis Results">
+      <div class="card-header">
+        <div class="card-title">
+          <span>📊</span> Automated Assessment Result
+        </div>
+        <div style="font-size: 0.82rem; color: var(--text-muted);">
+          Model: {{ result.model_name }}
+        </div>
+      </div>
+
+      <!-- URL Metadata Card (If fetched via URL) -->
+      {% if result.url_metadata %}
+        <div style="background: var(--bg-card-hover); border: 1px solid var(--purple-border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.5rem;">
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary);">
+              📰 {{ result.url_metadata.extracted_title }}
+            </h3>
+            <span class="hero-pill" style="margin: 0; font-size: 0.75rem;">
+              {{ result.url_metadata.source_domain }}
+            </span>
+          </div>
+          {% if result.url_metadata.publication_date %}
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+              Published: {{ result.url_metadata.publication_date }}
+            </div>
+          {% endif %}
+          <div style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 0.75rem; font-style: italic;">
+            "{{ result.url_metadata.extracted_excerpt }}"
+          </div>
+          <div style="font-size: 0.8rem; color: var(--purple-primary); font-weight: 600; display: flex; align-items: center; justify-content: space-between;">
+            <span>ℹ️ {{ result.url_metadata.fetch_notice }}</span>
+            <a href="{{ result.url_metadata.url }}" target="_blank" rel="noopener noreferrer" style="font-size: 0.8rem;">View Original Page ↗</a>
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- Main Status Banner -->
+      <div class="result-header-panel {% if result.is_uncertain %}uncertain{% elif result.predicted_class == 0 %}reliable{% else %}misleading{% endif %}">
+        <div>
+          <div class="result-label-badge {% if result.is_uncertain %}uncertain{% elif result.predicted_class == 0 %}reliable{% else %}misleading{% endif %}">
+            {% if result.is_uncertain %}
+              <span>⚖️</span> {{ result.predicted_label }}
+            {% elif result.predicted_class == 0 %}
+              <span>🛡️</span> {{ result.predicted_label }}
+            {% else %}
+              <span>⚠️</span> {{ result.predicted_label }}
+            {% endif %}
+          </div>
+          <div style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 0.35rem;">
+            {{ result.class_explanation }}
+          </div>
+        </div>
+
+        <div class="score-display">
+          <div class="score-value {% if result.is_uncertain %}uncertain{% elif result.predicted_class == 0 %}reliable{% else %}misleading{% endif %}">
+            {{ result.decision_score_percentage }}%
+          </div>
+          <div class="score-desc">{{ result.score_label }}</div>
+        </div>
+      </div>
+
+      <!-- Quality Warnings -->
+      {% if result.quality_warnings %}
+        <div class="alert-box alert-amber">
+          <span style="font-size: 1.1rem;">⚠️</span>
+          <div>
+            <strong>Input Quality Notice:</strong>
+            <ul style="margin-left: 1.25rem; margin-top: 0.25rem;">
+              {% for warn in result.quality_warnings %}
+                <li>{{ warn }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- Standard Mandatory Disclaimer -->
+      <div class="alert-box alert-disclaimer">
+        <span style="font-size: 1.1rem;">ℹ️</span>
+        <div>
+          <strong>Scientific Notice:</strong> {{ result.standard_disclaimer }}
+        </div>
+      </div>
+
+      <!-- Three Pillars of Analysis Grid -->
+      <div style="margin-top: 2rem;">
+        
+        <!-- Pillar A: Model Feature Contributions -->
+        <div style="margin-bottom: 2rem;">
+          <h2 style="font-size: 1.1rem; color: var(--text-primary); margin-bottom: 0.5rem;">
+            A. Machine-Learning Token Explanation
+          </h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+            {{ result.explanation.disclaimer }}
+          </p>
+
+          {% if result.explanation.available %}
+            <div class="tokens-grid">
+              <!-- Terms Pushing Reliable -->
+              <div class="token-column">
+                <div class="token-column-title" style="color: var(--reliable-color);">
+                  <span>Reliable-Style Weight Factors</span>
+                  <span style="font-size: 0.75rem; color: var(--text-muted);">Class 0 Weights</span>
+                </div>
+                {% if result.explanation.top_reliable_tokens %}
+                  <div class="token-list">
+                    {% for item in result.explanation.top_reliable_tokens %}
+                      <div class="token-row reliable">
+                        <span>"{{ item.token }}"</span>
+                        <span style="color: var(--reliable-color);">{{ item.contribution }}</span>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div style="font-size: 0.85rem; color: var(--text-muted); padding: 0.5rem;">
+                    No distinct reliable-associated terms exceeded the threshold.
+                  </div>
+                {% endif %}
+              </div>
+
+              <!-- Terms Pushing Misleading -->
+              <div class="token-column">
+                <div class="token-column-title" style="color: var(--misleading-color);">
+                  <span>Misleading-Style Weight Factors</span>
+                  <span style="font-size: 0.75rem; color: var(--text-muted);">Class 1 Weights</span>
+                </div>
+                {% if result.explanation.top_misleading_tokens %}
+                  <div class="token-list">
+                    {% for item in result.explanation.top_misleading_tokens %}
+                      <div class="token-row misleading">
+                        <span>"{{ item.token }}"</span>
+                        <span style="color: var(--misleading-color);">+{{ item.contribution }}</span>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div style="font-size: 0.85rem; color: var(--text-muted); padding: 0.5rem;">
+                    No distinct misleading-associated terms exceeded the threshold.
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+          {% else %}
+            <div style="background: var(--bg-card-hover); padding: 1rem; border-radius: 8px; font-size: 0.85rem; color: var(--text-muted);">
+              {{ result.explanation.note }}
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- Pillar B: Rules-Based Writing Style & Clickbait -->
+        <div style="margin-bottom: 2rem;">
+          <h2 style="font-size: 1.1rem; color: var(--text-primary); display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+            <span>B. Rules-Based Writing Style Signals</span>
+            <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">
+              Sensationalism Risk: <strong style="color: {% if result.clickbait_analysis.risk_level == 'Elevated' %}var(--misleading-color){% elif result.clickbait_analysis.risk_level == 'Moderate' %}var(--amber-caution){% else %}var(--reliable-color){% endif %};">{{ result.clickbait_analysis.risk_level }}</strong>
+            </span>
+          </h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+            {{ result.clickbait_analysis.disclaimer }}
+          </p>
+
+          <div class="rules-grid">
+            {% for rule in result.clickbait_analysis.rule_results %}
+              <div class="rule-card {% if rule.triggered %}triggered{% endif %}">
+                <div class="rule-status">
+                  <span>{{ rule.name }}</span>
+                  {% if rule.triggered %}
+                    <span class="badge-triggered">TRIGGERED</span>
+                  {% else %}
+                    <span class="badge-clean">CLEAN</span>
+                  {% endif %}
+                </div>
+                <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 0.35rem;">
+                  {{ rule.description }}
+                </div>
+                {% if rule.evidence %}
+                  <div style="font-size: 0.75rem; color: var(--amber-caution); font-family: var(--font-mono);">
+                    Matches: {{ rule.evidence | join(', ') }}
+                  </div>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Pillar C: Related Fact-Checks (Google Fact Check Tools API) -->
+        <div style="margin-bottom: 2rem;">
+          <h2 style="font-size: 1.1rem; color: var(--text-primary); display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+            <span>C. Related Fact-Checks (External Evidence)</span>
+            {% if result.fact_checks and result.fact_checks.status == 'success' %}
+              <span class="hero-pill" style="margin: 0; font-size: 0.75rem;">
+                {{ result.fact_checks.reviews | length }} match(es) found
+              </span>
+            {% endif %}
+          </h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+            Searches independent fact-checking organizations via the official Google Fact Check Tools API.
+          </p>
+
+          <!-- Distinction & Transparency Notice -->
+          <div style="font-size: 0.78rem; color: var(--text-muted); background: var(--bg-card-hover); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.75rem; margin-bottom: 1rem;">
+            ℹ️ <strong>Evidence Notice:</strong> An external fact-check match is supporting evidence regarding a potentially related claim. It does not automatically prove that the submitted article as a whole is true or false.
+          </div>
+
+          {% if result.fact_checks %}
+            {% if result.fact_checks.status == "success" and result.fact_checks.reviews %}
+              <div style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                Showing independent reviews matching query: <em>"{{ result.fact_checks.query_used }}"</em>
+              </div>
+              <div class="factcheck-grid">
+                {% for review in result.fact_checks.reviews %}
+                  <div class="factcheck-card">
+                    <div class="factcheck-card-header">
+                      <div class="factcheck-publisher">
+                        <span class="factcheck-pub-badge">{{ review.publisher_name }}</span>
+                        <span style="font-size: 0.78rem; color: var(--text-muted);">{{ review.publisher_site }}</span>
+                      </div>
+                      <span class="factcheck-verdict-badge {{ review.rating_badge_class }}">
+                        {{ review.textual_rating }}
+                      </span>
+                    </div>
+
+                    <div class="factcheck-claim-box">
+                      <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.25rem;">
+                        Claim Evaluated:
+                      </div>
+                      <div class="factcheck-claim-text">
+                        "{{ review.claim_text }}"
+                      </div>
+                      {% if review.claimant and review.claimant != "Unspecified source" %}
+                        <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 0.35rem;">
+                          Claimant: <strong>{{ review.claimant }}</strong>
+                        </div>
+                      {% endif %}
+                    </div>
+
+                    <div class="factcheck-card-footer">
+                      <span style="font-size: 0.78rem; color: var(--text-muted);">
+                        Reviewed: {{ review.review_date }}
+                      </span>
+                      <a href="{{ review.review_url }}" target="_blank" rel="noopener noreferrer" class="factcheck-link">
+                        Read Full Review on {{ review.publisher_name }} ↗
+                      </a>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% elif result.fact_checks.status == "no_matches" %}
+              <div class="alert-box alert-info" style="margin-bottom: 1rem;">
+                <span style="font-size: 1.1rem;">🔍</span>
+                <div>
+                  <strong>No Matching External Fact-Checks Found:</strong>
+                  <div>{{ result.fact_checks.message }}</div>
+                  <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
+                    The absence of an indexed fact-check does not confirm that the content is accurate. New or niche claims may not yet have been reviewed by fact-checkers.
+                  </div>
+                </div>
+              </div>
+            {% elif result.fact_checks.status == "missing_key" %}
+              <div class="alert-box alert-amber" style="margin-bottom: 1rem;">
+                <span style="font-size: 1.1rem;">⚙️</span>
+                <div>
+                  <strong>External Fact-Check Database Setup:</strong>
+                  <div>{{ result.fact_checks.message }}</div>
+                  <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.35rem;">
+                    <strong>Setup Instructions:</strong>
+                    <ol style="margin-left: 1.25rem; margin-top: 0.2rem;">
+                      <li>Create a Google Cloud project and enable the <em>Google Fact Check Tools API</em>.</li>
+                      <li>Generate an API key under <em>Credentials</em>.</li>
+                      <li>Add <code>GOOGLE_FACTCHECK_API_KEY=your_key</code> to your <code>.env</code> file and restart TruthLens.</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+            {% else %}
+              <div class="alert-box alert-amber" style="margin-bottom: 1rem;">
+                <span style="font-size: 1.1rem;">⚠️</span>
+                <div>
+                  <strong>Fact-Check Lookup Unavailable:</strong>
+                  <div>{{ result.fact_checks.message }}</div>
+                  <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
+                    TruthLens AI's pattern classifier remains fully functional.
+                  </div>
+                </div>
+              </div>
+            {% endif %}
+          {% endif %}
+        </div>
+
+        <!-- Pillar D: Independent Verification Checklist -->
+        <div>
+          <h2 style="font-size: 1.1rem; color: var(--text-primary); margin-bottom: 0.5rem;">
+            D. Independent Verification Checklist
+          </h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+            TruthLens is an NLP classifier, not a fact-checker. Always verify critical claims against primary sources.
+          </p>
+
+          <div class="checklist-container">
+            {% for item in result.verification_checklist %}
+              <div class="check-item">
+                <div class="check-step">{{ item.step }}</div>
+                <div>
+                  <div class="check-title">{{ item.title }}</div>
+                  <div class="check-desc">{{ item.detail }}</div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  {% elif result.status == "unsupported_language" %}
+    <section class="dashboard-card" id="results-panel" style="margin-top: 2.5rem; border-color: var(--amber-border);" aria-label="Language Support Notice">
+      <div class="card-header">
+        <div class="card-title" style="color: var(--amber-caution);">
+          <span>🌐</span> Language Support Notice
+        </div>
+        <span class="badge" style="background: var(--bg-card-hover); color: var(--amber-caution); border: 1px solid var(--amber-border); padding: 0.35rem 0.75rem; border-radius: 999px; font-weight: 600; font-size: 0.8rem;">
+          {{ result.detected_language | default('Non-English') }}
+        </span>
+      </div>
+
+      <!-- URL Metadata Card (If fetched via URL) -->
+      {% if result.url_metadata %}
+        <div style="background: var(--bg-card-hover); border: 1px solid var(--purple-border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.5rem;">
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary);">
+              📰 {{ result.url_metadata.extracted_title }}
+            </h3>
+            <span class="hero-pill" style="margin: 0; font-size: 0.75rem;">
+              {{ result.url_metadata.source_domain }}
+            </span>
+          </div>
+          {% if result.url_metadata.publication_date %}
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+              Published: {{ result.url_metadata.publication_date }}
+            </div>
+          {% endif %}
+          {% if result.url_metadata.extracted_excerpt %}
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem; font-style: italic;">
+              "{{ result.url_metadata.extracted_excerpt }}"
+            </p>
+          {% endif %}
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
+            <span style="color: var(--text-muted);">{{ result.url_metadata.fetch_notice }}</span>
+            <a href="{{ result.url_metadata.url }}" target="_blank" rel="noopener noreferrer" style="color: var(--purple-primary); font-weight: 600;">
+              Visit Original Source ↗
+            </a>
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- Primary Unsupported Language Notice -->
+      <div style="background: var(--amber-bg); border: 1px solid var(--amber-border); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem;">
+        <div style="display: flex; align-items: flex-start; gap: 1rem;">
+          <span style="font-size: 2rem; line-height: 1;">🌐</span>
+          <div style="flex: 1;">
+            <h3 style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.5rem;" id="unsupported-language-message">
+              {{ result.message }}
+            </h3>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 1rem;">
+              TruthLens AI's classification model and lexical indicators were trained exclusively on English-language news reporting. To uphold scientific integrity and prevent arbitrary predictions on non-English syntax, automated classification is disabled for this submission.
+            </p>
+            <div style="font-size: 0.85rem; color: var(--amber-caution); font-weight: 600; background: var(--bg-card); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--amber-border);">
+              ℹ️ <strong>Clarification:</strong> This is an automated language constraint, <u>not a verdict</u> about the truth, accuracy, or reliability of the claim or article.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Related Fact-Checks (External Evidence) -->
+      {% if result.fact_checks %}
+        <div style="margin-bottom: 2rem;">
+          <h2 style="font-size: 1.1rem; color: var(--text-primary); display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+            <span>Related Fact-Checks (External Evidence)</span>
+            {% if result.fact_checks.status == 'success' and result.fact_checks.reviews %}
+              <span class="hero-pill" style="margin: 0; font-size: 0.75rem;">
+                {{ result.fact_checks.reviews | length }} match(es) found
+              </span>
+            {% endif %}
+          </h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+            Searches independent fact-checking organizations via the official Google Fact Check Tools API.
+          </p>
+
+          <div style="font-size: 0.78rem; color: var(--text-muted); background: var(--bg-card-hover); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.75rem; margin-bottom: 1rem;">
+            ℹ️ <strong>Evidence Notice:</strong> An external fact-check match is supporting evidence regarding a potentially related claim. It does not automatically prove that the submitted article as a whole is true or false.
+          </div>
+
+          {% if result.fact_checks.status == "success" and result.fact_checks.reviews %}
+            <div style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+              Showing independent reviews matching query: <em>"{{ result.fact_checks.query_used }}"</em>
+            </div>
+            <div class="factcheck-grid">
+              {% for review in result.fact_checks.reviews %}
+                <div class="factcheck-card">
+                  <div class="factcheck-card-header">
+                    <div class="factcheck-publisher">
+                      <span class="factcheck-pub-badge">{{ review.publisher_name }}</span>
+                      <span style="font-size: 0.78rem; color: var(--text-muted);">{{ review.publisher_site }}</span>
+                    </div>
+                    <span class="factcheck-verdict-badge {{ review.rating_badge_class }}">
+                      {{ review.textual_rating }}
+                    </span>
+                  </div>
+
+                  <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;">
+                    "{{ review.claim_text }}"
+                  </div>
+
+                  {% if review.claimant %}
+                    <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                      Claimant: <strong>{{ review.claimant }}</strong>
+                    </div>
+                  {% endif %}
+
+                  <div class="factcheck-card-footer">
+                    <span style="font-size: 0.75rem; color: var(--text-muted);">
+                      Review Date: {{ review.review_date or "Not specified" }}
+                    </span>
+                    {% if review.review_url %}
+                      <a href="{{ review.review_url }}" target="_blank" rel="noopener noreferrer" class="factcheck-link">
+                        Read Fact-Check ↗
+                      </a>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% elif result.fact_checks.status == "no_matches" %}
+            <div class="alert-box alert-info" style="margin-bottom: 1rem;">
+              <span style="font-size: 1.1rem;">🔍</span>
+              <div>
+                <strong>No Matching Fact-Checks Found:</strong>
+                <div>{{ result.fact_checks.message }}</div>
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <!-- Independent Verification Checklist -->
+      {% if result.verification_checklist %}
+        <div>
+          <h2 style="font-size: 1.1rem; color: var(--text-primary); margin-bottom: 0.5rem;">
+            Independent Verification Checklist
+          </h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+            TruthLens is an NLP classifier, not a fact-checker. Always verify critical claims against primary sources.
+          </p>
+
+          <div class="checklist-container">
+            {% for item in result.verification_checklist %}
+              <div class="check-item">
+                <div class="check-step">{{ item.step }}</div>
+                <div>
+                  <div class="check-title">{{ item.title }}</div>
+                  <div class="check-desc">{{ item.detail }}</div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- Honest Disclaimer -->
+      <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle); font-size: 0.78rem; color: var(--text-muted); text-align: center;">
+        {{ result.standard_disclaimer }}
+      </div>
+    </section>
+
+  {% elif result.status == "model_missing" %}
+    <section class="dashboard-card" style="border-color: var(--amber-border); margin-top: 2.5rem;" aria-label="Setup Required">
+      <div class="card-header">
+        <div class="card-title" style="color: var(--amber-caution);">
+          ⚠️ Model Training Required
+        </div>
+      </div>
+      <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+        {{ result.message }}
+      </p>
+      <div style="background: var(--bg-input); padding: 1rem; border-radius: 8px; font-family: var(--font-mono); font-size: 0.9rem; color: var(--purple-primary); margin-bottom: 1rem;">
+        python -m src.train
+      </div>
+    </section>
+
+  {% elif result.status in ("error", "extraction_failed", "security_blocked", "invalid_url") %}
+    <section class="dashboard-card" style="border-color: var(--misleading-border); margin-top: 2.5rem;" aria-label="Analysis Error Notice">
+      <div class="card-header">
+        <div class="card-title" style="color: var(--misleading-color);">
+          ⚠️ URL Analysis Error
+        </div>
+      </div>
+      <p style="color: var(--text-primary); font-weight: 600; margin-bottom: 0.5rem;">
+        {{ result.message }}
+      </p>
+      {% if result.url %}
+        <div style="font-size: 0.85rem; color: var(--text-muted); font-family: var(--font-mono);">
+          Target URL: {{ result.url }}
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endif %}
+
+{% endblock %}
+

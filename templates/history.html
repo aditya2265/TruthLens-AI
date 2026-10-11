@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Local Analysis History — TruthLens AI{% endblock %}
+
+{% block content %}
+<section class="hero-section" style="text-align: left; margin-bottom: 2rem;">
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <h1 class="hero-title">Local Analysis History</h1>
+      <p class="hero-description" style="margin: 0;">
+        Review previous text classification runs stored locally on your machine.
+      </p>
+    </div>
+    {% if history_records %}
+      <form method="POST" action="{{ url_for('clear_history') }}" onsubmit="return confirm('Clear all analysis history records?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn btn-danger">Clear All History</button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+
+<!-- Privacy Notice Alert -->
+<div class="alert-box alert-disclaimer">
+  <span style="font-size: 1.1rem;">🔒</span>
+  <div>
+    <strong>Local Privacy Notice:</strong> All history records are stored in a local SQLite file (<code>instance/truthlens_history.sqlite3</code>). Full articles are never saved; only length-limited excerpts are retained. No data is transmitted to external servers or third parties.
+  </div>
+</div>
+
+<section class="dashboard-card">
+  <div class="card-header">
+    <div class="card-title">Recent Submissions ({{ history_records | length }} entries)</div>
+  </div>
+
+  {% if history_records %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Text Excerpt</th>
+          <th>Assessment Outcome</th>
+          <th>Decision Score</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rec in history_records %}
+          <tr>
+            <td style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap;">
+              {{ rec.timestamp }}
+            </td>
+            <td style="font-size: 0.85rem; color: var(--text-secondary); max-width: 380px;">
+              {{ rec.text_excerpt }}
+            </td>
+            <td>
+              <span class="result-label-badge {% if rec.is_uncertain %}uncertain{% elif rec.predicted_class == 0 %}reliable{% else %}misleading{% endif %}" style="font-size: 0.85rem;">
+                {{ rec.predicted_label }}
+              </span>
+            </td>
+            <td style="font-family: var(--font-mono); font-size: 0.85rem;">
+              {% if rec.decision_score is not none %}
+                {{ (rec.decision_score * 100) | round(1) }}%
+              {% else %}
+                N/A
+              {% endif %}
+            </td>
+            <td>
+              <form method="POST" action="{{ url_for('delete_history', record_id=rec.id) }}" style="display: inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.65rem; font-size: 0.75rem;" title="Delete entry">
+                  Delete
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted);">
+      <p style="font-size: 1rem; margin-bottom: 0.5rem;">No local history records found.</p>
+      <p style="font-size: 0.85rem;">Submissions from the dashboard will automatically appear here.</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}
