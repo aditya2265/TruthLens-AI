@@ -160,8 +160,8 @@ def fetch_url_safely(url_string: str) -> tuple[bool, str, str, str]:
     session = requests.Session()
 
     headers = {
-        "User-Agent": "TruthLensAI/1.0 (Educational Misleading Content Classifier)",
-        "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 (compatible; TruthLens/1.0)",
+        "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     }
 
@@ -274,6 +274,18 @@ def fetch_and_extract_url(url_string: str) -> URLExtractionResult:
         bare_meta = trafilatura.bare_extraction(content_or_err)
         title = bare_meta.get("title", "") if bare_meta else ""
         date = bare_meta.get("date", None) if bare_meta else None
+
+        if not extracted_text or not extracted_text.strip():
+            # Fallback extraction: extract main body paragraphs from HTML
+            p_matches = re.findall(r'<p[^>]*>(.*?)</p>', content_or_err, re.IGNORECASE | re.DOTALL)
+            clean_paras = []
+            for p in p_matches:
+                cleaned_p = re.sub(r'<[^>]+>', ' ', p)
+                cleaned_p = ' '.join(cleaned_p.split())
+                if len(cleaned_p) > 35:
+                    clean_paras.append(cleaned_p)
+            if clean_paras and len(clean_paras) >= 2:
+                extracted_text = "\n\n".join(clean_paras)
 
         if not extracted_text or not extracted_text.strip():
             return {

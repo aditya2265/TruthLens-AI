@@ -115,7 +115,9 @@ document.addEventListener("DOMContentLoaded", () => {
     form.addEventListener("submit", () => {
       const submitBtn = form.querySelector('button[type="submit"]');
       if (submitBtn) {
-        submitBtn.disabled = true;
+        // Do not disable synchronously to ensure browser form submission is not aborted
+        submitBtn.style.pointerEvents = "none";
+        submitBtn.style.opacity = "0.75";
         submitBtn.innerHTML = `
           <svg class="spinner" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;">
             <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
@@ -126,6 +128,12 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   });
+
+  // --- Auto-scroll to Results Panel if results present ---
+  const resultsPanel = document.getElementById("results-panel");
+  if (resultsPanel) {
+    resultsPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   // --- 6. Live News Feed Event Handlers & Dynamic Refresh (Home page only) ---
   const feedContentArea = document.getElementById("news-feed-content-area");
@@ -138,11 +146,18 @@ document.addEventListener("DOMContentLoaded", () => {
           const urlTabBtn = document.querySelector('.tab-btn[data-tab="url"]');
           if (urlTabBtn) urlTabBtn.click();
 
-          const urlInput = document.getElementById("article_url");
+          const urlInput = document.getElementById("article_url") || document.querySelector('input[name="article_url"]');
           if (urlInput) {
             urlInput.value = targetUrl;
             urlInput.scrollIntoView({ behavior: "smooth", block: "center" });
-            urlInput.focus();
+            const form = urlInput.closest("form");
+            if (form) {
+              if (typeof form.requestSubmit === "function") {
+                form.requestSubmit();
+              } else {
+                form.submit();
+              }
+            }
           }
         }
       }

@@ -37,6 +37,7 @@
         <input
           type="url"
           name="article_url"
+          id="article_url"
           class="url-input"
           placeholder="Paste article link (e.g. https://example.com/news-story)..."
           value="{{ submitted_url or '' }}"
@@ -724,7 +725,7 @@
     </section>
 
   {% elif result.status in ("error", "extraction_failed", "security_blocked", "invalid_url") %}
-    <section class="dashboard-card" style="border-color: var(--misleading-border); margin-top: 2.5rem;" aria-label="Analysis Error Notice">
+    <section class="dashboard-card" id="results-panel" style="border-color: var(--misleading-border); margin-top: 2.5rem;" aria-label="Analysis Error Notice">
       <div class="card-header">
         <div class="card-title" style="color: var(--misleading-color);">
           ⚠️ URL Analysis Error
@@ -734,10 +735,16 @@
         {{ result.message }}
       </p>
       {% if result.url %}
-        <div style="font-size: 0.85rem; color: var(--text-muted); font-family: var(--font-mono);">
+        <div style="font-size: 0.85rem; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 1rem;">
           Target URL: {{ result.url }}
         </div>
       {% endif %}
+      <div class="alert-box alert-info" style="margin-top: 1rem;">
+        <span>💡</span>
+        <div>
+          <strong>Tip:</strong> If the article is behind a paywall, login screen, or blocks automated web requests, you can copy the article text or headline directly and analyze it in the <strong>Paste Text</strong> tab.
+        </div>
+      </div>
     </section>
   {% endif %}
 {% endif %}
