@@ -287,6 +287,32 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // --- 7. Asynchronous Initial Feed Loader (renders immediately without blocking GET /) ---
+  async function fetchNewsFeedAsync() {
+    if (!feedContentArea || document.getElementById("news-feed-container")) return;
+    try {
+      const res = await fetch("/api/news-feed");
+      const data = await res.json();
+      if (data && data.last_updated && feedUpdatedLabel) {
+        feedUpdatedLabel.textContent = `Feed Retrieved: ${data.last_updated}${data.is_cached && !data.last_updated.includes("cached") ? " (cached)" : ""}`;
+      }
+      if (data && data.status === "success") {
+        feedContentArea.innerHTML = renderFeedArticles(data.articles);
+      } else {
+        feedContentArea.innerHTML = renderFeedError(data.notice, data.message);
+      }
+    } catch (err) {
+      if (!document.getElementById("news-feed-container")) {
+        feedContentArea.innerHTML = renderFeedError(
+          "Connection error",
+          "Could not load live news feed."
+        );
+      }
+    }
+  }
+
+  fetchNewsFeedAsync();
+
 });
 
 // Inline spin animation

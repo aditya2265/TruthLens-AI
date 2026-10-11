@@ -2,8 +2,8 @@ services:
   - type: web
     name: truthlens-ai
     env: python
-    buildCommand: "pip install -r requirements.txt && python -m src.train"
-    startCommand: "gunicorn -w 1 --threads 4 -b 0.0.0.0:$PORT src.app:app"
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn --preload -w 1 --threads 4 --timeout 180 -b 0.0.0.0:$PORT src.app:app"
     envVars:
       - key: FLASK_ENV
         value: production

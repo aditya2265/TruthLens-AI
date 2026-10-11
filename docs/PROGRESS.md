@@ -124,3 +124,63 @@
   - `render.yaml` (production build command and start command `gunicorn -w 1 --threads 4 -b 0.0.0.0:$PORT src.app:app`)
   - `scripts/demo_check.ps1` (6-step automated PowerShell verification script)
 - [x] Browser visual verification: marked manual, untested (no screenshots claimed). Project is 100% complete, reproducible, and ready for review.
+
+---
+
+### Stage 7: Performance Optimization & Production Hardening (Completed & Verified)
+- [x] **Measured Baseline First**:
+  - Implemented `scripts/benchmark_baseline.py` running real 3-iteration benchmarks against local server.
+  - Identified major bottleneck: Home page (`GET /`) and prediction (`POST /predict`) were synchronously executing live GDELT API queries over TLS (taking 12–14s per request).
+- [x] **Optimized Homepage & Live News Feed**:
+  - Home page renders immediately without blocking on external APIs.
+  - Client-side asynchronous fetch via `fetchNewsFeedAsync()` in `static/js/main.js` populates headlines on `DOMContentLoaded`.
+  - Configured provider timeouts to 5.0s per provider with a strict 10.0s total cap.
+  - Added background daemon thread `warm_news_feed_cache()` at app boot to warm the headlines cache.
+- [x] **Model Preloading & Boot Warm-up**:
+  - Loaded pipeline model into memory at application startup (`_PRELOADED_PIPELINE`) compatible with `gunicorn --preload`.
+  - Executed dummy warm-up prediction during startup so zero cold-start delay occurs on first request.
+- [x] **Cleaned Web Request Import Path**:
+  - Removed top-level `import pandas as pd`, `import numpy as np`, and `from sklearn.model_selection import ...` from `src/preprocessing.py`.
+  - Lazy-imported pandas inside training-only functions (`load_raw_dataset`, `audit_and_deduplicate`, `split_dataset`).
+  - Implemented standalone `math.isnan` check in `clean_text` with zero external dependencies.
+  - `src.preprocessing` import time dropped from ~600ms to 50.9ms.
+- [x] **In-Memory Caching for Metadata & Reports**:
+  - Pre-cached evaluation reports (`_PERF_EVAL_DATA`, `_PERF_QUALITY_DATA`, `_PERF_LEAKAGE_DATA`) and model metadata in memory at startup, avoiding repeated disk reads per request.
+- [x] **Reused Transformed Vectors in Prediction**:
+  - Fitted pipeline cached feature names and model coefficients directly on pipeline instance.
+  - Reused pre-transformed TF-IDF sparse matrix (`X_vec`) across both classifier inference and per-token explanation, avoiding duplicate vectorization.
+- [x] **Gzip Compression & Static Asset Caching**:
+  - Integrated `flask-compress` (`Compress(app)`).
+  - Set `SEND_FILE_MAX_AGE_DEFAULT = 31536000` with explicit `Cache-Control: public, max-age=31536000, immutable` headers for `/static` files.
+- [x] **Compact Model Artifact**:
+  - Evaluated model artifact size: 1.12 MB (1,176,673 bytes) with 25,000 TF-IDF n-gram vocabulary.
+  - Tested joblib compression (`compress=3`, 510 KB) and measured load times: uncompressed loads in 110ms, compressed takes 254ms. Retained uncompressed artifact for optimal load latency and memory footprint.
+  - Un-ignored `!models/truthlens_model.joblib` in `.gitignore` for zero-friction cloud deployment.
+- [x] **Split Requirements & Clean Virtualenv Validation**:
+  - Created minimal `requirements.txt` for production deployment (omitting pandas, matplotlib, seaborn, pytest).
+  - Created `requirements-dev.txt` for development and training (`-r requirements.txt`, `pandas>=2.2.0,<2.3.0`, `pytest>=8.0.0,<9.0.0`).
+  - Verified clean installation of both files in an isolated virtual environment (`scratch_venv`).
+- [x] **Updated Cloud Deployment Config**:
+  - Configured `render.yaml` to use:
+    `buildCommand: "pip install -r requirements.txt"`
+    `startCommand: "gunicorn --preload -w 1 --threads 4 --timeout 180 -b 0.0.0.0:$PORT src.app:app"`
+  - Updated production deployment documentation in `docs/security.md`.
+- [x] **Comprehensive Verification**:
+  - Pytest full suite: **139 passed, 0 failed** in **7.14s** (down from 15.38s, >2x faster test execution).
+  - Hindi safety message verified exact string: `"Unable to assess: this model was trained on English news."`.
+  - Predictions unchanged for identical inputs (Reuters: 0.0972, Clickbait: 0.9784).
+  - URL security, fact-check, live headlines, and history functionality fully validated.
+
+### Performance Benchmark Comparison (Real Measured Timings)
+
+| Metric / Endpoint | Baseline (Before) | Optimized (After) | Speedup / Improvement |
+| :--- | :---: | :---: | :---: |
+| **Python Import (`src.preprocessing`)** | ~600 ms | **50.9 ms** | **~12x faster** |
+| **Python Import (`src.app`)** | 1,534.1 ms | 1,572.1 ms | Includes model preload & warm-up |
+| **Model Load Time (`load_model()`)** | 111.1 ms (cold per worker) | **0.00 ms (preloaded)** / 133.8 ms cold | Preloaded once at boot |
+| **GET `/` (Homepage render)** | **13,754.2 ms** | **33.1 ms** | **415x faster** |
+| **GET `/health` (Health check)** | 14.2 ms | **16.1 ms** | Instant health check |
+| **POST `/predict` (English paragraph)** | **12,681.4 ms** | **19.7 ms** | **643x faster** |
+| **GET `/api/news-feed`** | 14,665.3 ms | **7,017.8 ms** | Bounded (5s/provider, 10s total cap) |
+| **Pytest Full Suite (`139 tests`)** | 15.38 s | **7.14 s** | **>2x faster test execution** |
+

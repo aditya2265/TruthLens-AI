@@ -4,12 +4,10 @@ Follows strict leakage prevention and reproducible data processing guidelines.
 """
 import hashlib
 import html
+import math
 import re
 from pathlib import Path
 from typing import Any
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import StratifiedGroupKFold, train_test_split
 
 from src.config import (
     FAKE_RAW_PATH,
@@ -52,7 +50,9 @@ def clean_text(text: Any, remove_datelines: bool = True) -> str:
     Returns:
         Cleaned, normalized string.
     """
-    if text is None or pd.isna(text):
+    if text is None:
+        return ""
+    if isinstance(text, float) and math.isnan(text):
         return ""
 
     s = str(text)
@@ -74,7 +74,7 @@ def clean_text(text: Any, remove_datelines: bool = True) -> str:
 def load_raw_dataset(
     fake_path: Path | str = FAKE_RAW_PATH,
     true_path: Path | str = TRUE_RAW_PATH,
-) -> pd.DataFrame:
+) -> Any:
     """Loads and combines raw Fake and True news CSV datasets.
 
     Assigns:
@@ -88,6 +88,8 @@ def load_raw_dataset(
         FileNotFoundError: If either dataset file is missing.
         ValueError: If files lack expected text columns.
     """
+    import pandas as pd
+
     fake_p = Path(fake_path)
     true_p = Path(true_path)
 
@@ -131,9 +133,9 @@ def compute_simhash_signature(text: str, n: int = 3) -> str:
 
 
 def audit_and_deduplicate(
-    df: pd.DataFrame,
+    df: Any,
     clean_datelines: bool = True,
-) -> tuple[pd.DataFrame, dict[str, Any]]:
+) -> tuple[Any, dict[str, Any]]:
     """Cleans text, audits duplicates, resolves conflicting labels, and assigns cluster groups.
 
     Duplicate handling rules:
@@ -143,6 +145,8 @@ def audit_and_deduplicate(
        so they never cross train/validation/test splits.
     3. Near-duplicate syndicated prefixes are assigned shared group_ids.
     """
+    import pandas as pd
+
     report: dict[str, Any] = {
         "initial_row_count": len(df),
         "missing_text_count": 0,
@@ -192,18 +196,21 @@ def audit_and_deduplicate(
 
 
 def split_dataset(
-    df: pd.DataFrame,
+    df: Any,
     train_ratio: float = TRAIN_SPLIT,
     val_ratio: float = VAL_SPLIT,
     test_ratio: float = TEST_SPLIT,
     random_state: int = RANDOM_STATE,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[Any, Any, Any]:
     """Splits data into train, val, and test sets.
 
     Ensures:
     1. Stratification by target label.
     2. Group-awareness (records with the same group_id stay in the same split to avoid leakage).
     """
+    import numpy as np
+    from sklearn.model_selection import train_test_split
+
     if not np.isclose(train_ratio + val_ratio + test_ratio, 1.0):
         raise ValueError("Train, val, and test ratios must sum to 1.0")
 

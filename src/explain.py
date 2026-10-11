@@ -34,7 +34,12 @@ EXPLANATION_DISCLAIMER = (
 
 
 def get_feature_names_and_coefs(pipeline: Pipeline) -> tuple[np.ndarray, np.ndarray, float]:
-    """Extracts vocabulary feature names and model coefficients from a fitted pipeline."""
+    """Extracts vocabulary feature names and model coefficients from a fitted pipeline.
+    Caches decomposition on the pipeline instance for zero-cost repeated lookups."""
+    cached = getattr(pipeline, "_cached_feature_names_and_coefs", None)
+    if cached is not None:
+        return cached
+
     vectorizer = pipeline.named_steps.get("tfidf") or pipeline.named_steps.get("vectorizer")
     classifier = pipeline.named_steps.get("clf") or pipeline.named_steps.get("classifier")
 
@@ -58,13 +63,19 @@ def get_feature_names_and_coefs(pipeline: Pipeline) -> tuple[np.ndarray, np.ndar
     else:
         raise ValueError("Classifier does not expose linear coefficients.")
 
-    return feature_names, coefs, intercept
+    result = (feature_names, coefs, intercept)
+    try:
+        pipeline._cached_feature_names_and_coefs = result
+    except Exception:
+        pass
+    return result
 
 
 def explain_text_prediction(
     pipeline: Pipeline,
     cleaned_text: str,
     top_n: int = 8,
+    X_vec: Any = None,
 ) -> ExplanationResult:
     """Computes exact per-token feature contributions for a single input text.
 
@@ -88,8 +99,9 @@ def explain_text_prediction(
         vectorizer = pipeline.named_steps.get("tfidf") or pipeline.named_steps.get("vectorizer")
         feature_names, coefs, intercept = get_feature_names_and_coefs(pipeline)
 
-        # Transform single input text to sparse TF-IDF row
-        X_vec = vectorizer.transform([cleaned_text])
+        # Transform single input text to sparse TF-IDF row if not already provided
+        if X_vec is None:
+            X_vec = vectorizer.transform([cleaned_text])
         nonzero_indices = X_vec.indices
         nonzero_values = X_vec.data
 

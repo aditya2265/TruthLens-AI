@@ -6,7 +6,11 @@ Follows strict security guidelines:
 - Parameterized SQLite queries for optional local history
 - Secure error handling and rate-limiting safeguards
 """
+import json
+import logging
 import os
+import threading
+import time
 from pathlib import Path
 from flask import (
     Flask,
@@ -17,8 +21,14 @@ from flask import (
     url_for,
     flash,
     abort,
+    g,
 )
 from flask_wtf.csrf import CSRFProtect, CSRFError
+from flask_compress import Compress
+
+logger = logging.getLogger("truthlens")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 from src.config import (
     SECRET_KEY,
@@ -34,7 +44,7 @@ from src.config import (
     STANDARD_DISCLAIMER,
 )
 from src.predict import predict_text, load_model
-from src.news_feed import fetch_gdelt_news
+from src.news_feed import fetch_gdelt_news, warm_news_feed_cache, get_cached_news_feed
 from src.factcheck import search_fact_checks
 from src.history import (
     save_history_record,
@@ -86,9 +96,72 @@ app = Flask(
 
 app.config["SECRET_KEY"] = SECRET_KEY
 app.config["WTF_CSRF_TIME_LIMIT"] = 3600
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 31536000
+
+# Enable Gzip/Brotli Compression
+Compress(app)
 
 # Enable CSRF Protection
 csrf = CSRFProtect(app)
+
+
+# ---------------------------------------------------------------------------
+# Startup Preloading & In-Memory Caching (Gunicorn --preload compatible)
+# ---------------------------------------------------------------------------
+# 1. Load model once at startup and execute warm-up prediction
+_PRELOADED_PIPELINE, _PRELOADED_METADATA = load_model()
+if _PRELOADED_PIPELINE is not None:
+    try:
+        predict_text("Preload diagnostic warm-up prediction at boot.", search_factchecks=False)
+        logger.info("[PERF] Boot model warm-up prediction completed successfully.")
+    except Exception as _e:
+        logger.warning("[PERF] Warm-up prediction notice: %s", _e)
+
+# 2. Cache immutable evaluation artifacts in memory at startup
+_PERF_EVAL_DATA = None
+_PERF_QUALITY_DATA = None
+_PERF_LEAKAGE_DATA = None
+
+if EVALUATION_REPORT_PATH.exists():
+    try:
+        with open(EVALUATION_REPORT_PATH, "r", encoding="utf-8") as _f:
+            _PERF_EVAL_DATA = json.load(_f)
+    except Exception:
+        pass
+
+if DATA_QUALITY_REPORT_PATH.exists():
+    try:
+        with open(DATA_QUALITY_REPORT_PATH, "r", encoding="utf-8") as _f:
+            _PERF_QUALITY_DATA = json.load(_f)
+    except Exception:
+        pass
+
+if LEAKAGE_AUDIT_PATH.exists():
+    try:
+        with open(LEAKAGE_AUDIT_PATH, "r", encoding="utf-8") as _f:
+            _PERF_LEAKAGE_DATA = json.load(_f)
+    except Exception:
+        pass
+
+# 3. Warm feed cache in background thread without delaying server boot
+threading.Thread(target=warm_news_feed_cache, daemon=True, name="feed-cache-warmer").start()
+
+
+@app.before_request
+def _start_request_timer():
+    g._request_start_time = time.perf_counter()
+
+
+@app.after_request
+def _log_request_time(response):
+    if hasattr(g, "_request_start_time"):
+        duration_ms = (time.perf_counter() - g._request_start_time) * 1000.0
+        logger.info("[PERF] %s %s -> %s in %.2fms", request.method, request.path, response.status_code, duration_ms)
+
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+
+    return response
 
 
 @app.context_processor
@@ -106,8 +179,8 @@ def inject_global_context():
 
 @app.route("/", methods=["GET"])
 def index():
-    """Main dashboard page."""
-    feed = fetch_gdelt_news()
+    """Main dashboard page — renders immediately from cache or background warming."""
+    feed = fetch_gdelt_news(only_cached=True)
     return render_template(
         "index.html",
         demo_examples=DEMO_EXAMPLES,
@@ -125,7 +198,7 @@ def handle_predict():
     input_mode = request.form.get("input_mode", "text")
     submitted_url = request.form.get("article_url", "").strip()
     submitted_text = request.form.get("news_text", "").strip()
-    feed = fetch_gdelt_news()
+    feed = fetch_gdelt_news(only_cached=True)
 
     if input_mode == "url" and submitted_url:
         from src.predict import predict_url
@@ -216,30 +289,12 @@ def about():
 
 @app.route("/performance", methods=["GET"])
 def performance():
-    """Genuine evaluation results and model audit charts."""
-    import json
-
-    evaluation_data = None
-    data_quality_data = None
-    leakage_data = None
-
-    if EVALUATION_REPORT_PATH.exists():
-        with open(EVALUATION_REPORT_PATH, "r", encoding="utf-8") as f:
-            evaluation_data = json.load(f)
-
-    if DATA_QUALITY_REPORT_PATH.exists():
-        with open(DATA_QUALITY_REPORT_PATH, "r", encoding="utf-8") as f:
-            data_quality_data = json.load(f)
-
-    if LEAKAGE_AUDIT_PATH.exists():
-        with open(LEAKAGE_AUDIT_PATH, "r", encoding="utf-8") as f:
-            leakage_data = json.load(f)
-
+    """Genuine evaluation results and model audit charts — served from in-memory cache."""
     return render_template(
         "performance.html",
-        evaluation=evaluation_data,
-        data_quality=data_quality_data,
-        leakage=leakage_data,
+        evaluation=_PERF_EVAL_DATA,
+        data_quality=_PERF_QUALITY_DATA,
+        leakage=_PERF_LEAKAGE_DATA,
     )
 
 

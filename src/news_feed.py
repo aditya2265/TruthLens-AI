@@ -34,7 +34,9 @@ class NewsFeedResponse(TypedDict):
 
 
 GDELT_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
-GDELT_TIMEOUT = (15.0, 25.0)  # (connect_timeout, read_timeout) - TLS handshake takes ~9.8s
+GDELT_TIMEOUT = 5.0  # 5s timeout per provider
+PROVIDER_TIMEOUT = 5.0  # 5s timeout per provider
+TOTAL_TIMEOUT_CAP = 10.0  # 10s total cap across providers
 MAX_RESPONSE_BYTES = 1024 * 1024  # 1 MB response cap
 CACHE_TTL_SECONDS = 900  # 15 minutes
 MIN_REQUEST_INTERVAL_SECONDS = 6.0  # Minimum 6 seconds between outbound GDELT requests
@@ -113,17 +115,24 @@ def clean_article_title(raw_title: str) -> str:
     return cleaned
 
 
-def fetch_fallback_news(max_records: int = 9) -> NewsFeedResponse | None:
-    """Attempts to fetch news from secondary providers (GNews or NewsData) if keys are configured."""
+def fetch_fallback_news(max_records: int = 9, remaining_budget: float = 5.0) -> NewsFeedResponse | None:
+    """Attempts to fetch news from secondary providers (GNews or NewsData) if keys are configured.
+    Enforces 5s timeout per provider and bounded remaining timeout budget."""
     from src.config import GNEWS_API_KEY, NEWSDATA_API_KEY
+
+    if remaining_budget <= 0.5:
+        return None
+
+    start_t = time.time()
 
     # 1. Try GNews API if key provided
     if GNEWS_API_KEY:
         try:
+            timeout = min(PROVIDER_TIMEOUT, remaining_budget)
             resp = requests.get(
                 "https://gnews.io/api/v4/top-headlines",
                 params={"token": GNEWS_API_KEY, "lang": "en", "max": str(min(max_records, 10))},
-                timeout=(5.0, 8.0),
+                timeout=timeout,
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -159,13 +168,16 @@ def fetch_fallback_news(max_records: int = 9) -> NewsFeedResponse | None:
         except Exception:
             pass
 
-    # 2. Try NewsData API if key provided
-    if NEWSDATA_API_KEY:
+    # 2. Try NewsData API if key provided and budget remains
+    elapsed = time.time() - start_t
+    rem = remaining_budget - elapsed
+    if NEWSDATA_API_KEY and rem > 0.5:
         try:
+            timeout = min(PROVIDER_TIMEOUT, rem)
             resp = requests.get(
                 "https://newsdata.io/api/1/news",
                 params={"apikey": NEWSDATA_API_KEY, "language": "en"},
-                timeout=(5.0, 8.0),
+                timeout=timeout,
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -204,14 +216,47 @@ def fetch_fallback_news(max_records: int = 9) -> NewsFeedResponse | None:
     return None
 
 
+def get_cached_news_feed() -> NewsFeedResponse | None:
+    """Returns currently cached feed copy if available, without any external network call."""
+    cached_data = _NEWS_FEED_CACHE.get("response")
+    if cached_data:
+        cached_copy = dict(cached_data)
+        cached_copy["is_cached"] = True
+        return cached_copy  # type: ignore
+    return None
+
+
+def warm_news_feed_cache() -> None:
+    """Warms the news feed cache in a background thread without blocking the web request path."""
+    try:
+        fetch_gdelt_news(force_refresh=True)
+    except Exception:
+        pass
+
+
 def fetch_gdelt_news(
     query: str = "(news OR report OR official OR market OR science OR tech) sourcelang:english",
     max_records: int = 9,
     force_refresh: bool = False,
+    only_cached: bool = False,
 ) -> NewsFeedResponse:
     """Fetches recent news articles from GDELT 2.0 DOC API with caching, rate limiting, and error handling."""
     global _NEWS_FEED_CACHE, _NEWS_FEED_LOCK
 
+    if only_cached:
+        cached = get_cached_news_feed()
+        if cached:
+            return cached
+        return {
+            "status": "loading",
+            "message": "Live news feed warming in background...",
+            "articles": [],
+            "is_cached": False,
+            "last_updated": "--",
+            "notice": "Loading headlines...",
+        }
+
+    req_start = time.time()
     now = time.time()
     cached_data = _NEWS_FEED_CACHE.get("response")
     cache_time = _NEWS_FEED_CACHE.get("timestamp", 0.0)
@@ -237,6 +282,16 @@ def fetch_gdelt_news(
 
         elapsed_since_last_req = now - last_request_time
 
+        def _attempt_fallback() -> NewsFeedResponse | None:
+            rem_budget = max(0.0, TOTAL_TIMEOUT_CAP - (time.time() - req_start))
+            if rem_budget <= 0.5:
+                return None
+            fb = fetch_fallback_news(max_records=max_records, remaining_budget=rem_budget)
+            if fb:
+                _NEWS_FEED_CACHE["timestamp"] = now
+                _NEWS_FEED_CACHE["response"] = dict(fb)
+            return fb
+
         # 3. Rate-limit protection: if refresh requested within 6 seconds
         if force_refresh and elapsed_since_last_req < MIN_REQUEST_INTERVAL_SECONDS:
             if cached_data:
@@ -248,11 +303,9 @@ def fetch_gdelt_news(
                 cached_copy["notice"] = f"Showing cached feed from {orig_time}. GDELT requires a 6-second interval."
                 return cached_copy  # type: ignore
 
-            # No cache exists: try fallback providers
-            fallback_res = fetch_fallback_news(max_records=max_records)
+            # No cache exists: try fallback providers within remaining budget
+            fallback_res = _attempt_fallback()
             if fallback_res:
-                _NEWS_FEED_CACHE["timestamp"] = now
-                _NEWS_FEED_CACHE["response"] = dict(fallback_res)
                 return fallback_res
 
             return {
@@ -294,10 +347,8 @@ def fetch_gdelt_news(
                     cached_copy["notice"] = f"GDELT rate limit reached (max 1 request per 5 seconds). Showing cached feed (retrieved at {orig_time})."
                     return cached_copy  # type: ignore
 
-                fallback_res = fetch_fallback_news(max_records=max_records)
+                fallback_res = _attempt_fallback()
                 if fallback_res:
-                    _NEWS_FEED_CACHE["timestamp"] = now
-                    _NEWS_FEED_CACHE["response"] = dict(fallback_res)
                     return fallback_res
 
                 return {
@@ -317,10 +368,8 @@ def fetch_gdelt_news(
                     cached_copy["notice"] = f"GDELT returned HTTP {resp.status_code}. Showing cached feed."
                     return cached_copy  # type: ignore
 
-                fallback_res = fetch_fallback_news(max_records=max_records)
+                fallback_res = _attempt_fallback()
                 if fallback_res:
-                    _NEWS_FEED_CACHE["timestamp"] = now
-                    _NEWS_FEED_CACHE["response"] = dict(fallback_res)
                     return fallback_res
 
                 return {
@@ -366,10 +415,8 @@ def fetch_gdelt_news(
                         cached_copy["notice"] = f"GDELT rate limit reached. Showing cached feed (retrieved at {orig_time})."
                         return cached_copy  # type: ignore
 
-                    fallback_res = fetch_fallback_news(max_records=max_records)
+                    fallback_res = _attempt_fallback()
                     if fallback_res:
-                        _NEWS_FEED_CACHE["timestamp"] = now
-                        _NEWS_FEED_CACHE["response"] = dict(fallback_res)
                         return fallback_res
 
                     return {
@@ -387,10 +434,8 @@ def fetch_gdelt_news(
                     cached_copy["status"] = "success"
                     return cached_copy  # type: ignore
 
-                fallback_res = fetch_fallback_news(max_records=max_records)
+                fallback_res = _attempt_fallback()
                 if fallback_res:
-                    _NEWS_FEED_CACHE["timestamp"] = now
-                    _NEWS_FEED_CACHE["response"] = dict(fallback_res)
                     return fallback_res
 
                 return {
@@ -410,10 +455,8 @@ def fetch_gdelt_news(
                     cached_copy["status"] = "success"
                     return cached_copy  # type: ignore
 
-                fallback_res = fetch_fallback_news(max_records=max_records)
+                fallback_res = _attempt_fallback()
                 if fallback_res:
-                    _NEWS_FEED_CACHE["timestamp"] = now
-                    _NEWS_FEED_CACHE["response"] = dict(fallback_res)
                     return fallback_res
 
                 return {
@@ -505,10 +548,8 @@ def fetch_gdelt_news(
                 cached_copy["notice"] = "Live GDELT connection timed out. Showing cached feed."
                 return cached_copy  # type: ignore
 
-            fallback_res = fetch_fallback_news(max_records=max_records)
+            fallback_res = _attempt_fallback()
             if fallback_res:
-                _NEWS_FEED_CACHE["timestamp"] = now
-                _NEWS_FEED_CACHE["response"] = dict(fallback_res)
                 return fallback_res
 
             return {
@@ -526,10 +567,8 @@ def fetch_gdelt_news(
                 cached_copy["status"] = "success"
                 return cached_copy  # type: ignore
 
-            fallback_res = fetch_fallback_news(max_records=max_records)
+            fallback_res = _attempt_fallback()
             if fallback_res:
-                _NEWS_FEED_CACHE["timestamp"] = now
-                _NEWS_FEED_CACHE["response"] = dict(fallback_res)
                 return fallback_res
 
             return {
@@ -547,10 +586,8 @@ def fetch_gdelt_news(
                 cached_copy["status"] = "success"
                 return cached_copy  # type: ignore
 
-            fallback_res = fetch_fallback_news(max_records=max_records)
+            fallback_res = _attempt_fallback()
             if fallback_res:
-                _NEWS_FEED_CACHE["timestamp"] = now
-                _NEWS_FEED_CACHE["response"] = dict(fallback_res)
                 return fallback_res
 
             return {

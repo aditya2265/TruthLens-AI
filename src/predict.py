@@ -4,11 +4,15 @@ Enforces strict input validation, out-of-distribution heuristics, cautious label
 and separation of machine-learning classification from rules-based writing signals.
 """
 import json
+import logging
 import re
+import time
 from pathlib import Path
 from typing import Any, TypedDict
 import joblib
 from sklearn.pipeline import Pipeline
+
+logger = logging.getLogger("truthlens")
 
 from src.config import (
     PRIMARY_MODEL_PATH,
@@ -94,11 +98,14 @@ def load_model(
         return None, None
 
     try:
+        t0 = time.perf_counter()
         pipeline = joblib.load(m_path)
         metadata = {}
         if meta_path.exists():
             with open(meta_path, "r", encoding="utf-8") as f:
                 metadata = json.load(f)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        logger.info("[PERF] Model loaded from disk in %.2fms", elapsed_ms)
 
         _MODEL_PIPELINE = pipeline
         _MODEL_METADATA = metadata
@@ -262,9 +269,12 @@ def predict_text(text: str, search_factchecks: bool = True) -> dict[str, Any]:
     if vocab_ratio < 0.20:
         quality_warnings.append(vocab_warning)
 
-    # 5. Model Inference
+    # 5. Model Inference (reuse pre-transformed vector across classification & explanation)
     try:
+        vectorizer = pipeline.named_steps.get("tfidf") or pipeline.named_steps.get("vectorizer")
         classifier = pipeline.named_steps.get("clf") or pipeline.named_steps.get("classifier")
+
+        X_vec = vectorizer.transform([cleaned]) if vectorizer is not None else None
 
         # Probability assessment
         calibrated = metadata.get("calibration", {}).get("is_calibrated", False) if metadata else False
@@ -274,12 +284,26 @@ def predict_text(text: str, search_factchecks: bool = True) -> dict[str, Any]:
         prob_reliable = 0.5
         score_value = 0.5
 
-        if hasattr(pipeline, "predict_proba"):
+        if classifier is not None and hasattr(classifier, "predict_proba") and X_vec is not None:
+            probs = classifier.predict_proba(X_vec)[0]
+            # probs[0] is reliable, probs[1] is misleading
+            prob_reliable = float(probs[LABEL_RELIABLE])
+            prob_misleading = float(probs[LABEL_MISLEADING])
+            score_value = prob_misleading
+        elif hasattr(pipeline, "predict_proba"):
             probs = pipeline.predict_proba([cleaned])[0]
             # probs[0] is reliable, probs[1] is misleading
             prob_reliable = float(probs[LABEL_RELIABLE])
             prob_misleading = float(probs[LABEL_MISLEADING])
             score_value = prob_misleading
+        elif classifier is not None and hasattr(classifier, "decision_function") and X_vec is not None:
+            df_val = float(classifier.decision_function(X_vec)[0])
+            # Sigmoid approximation for uncalibrated decision score
+            import numpy as np
+            score_value = float(1 / (1 + np.exp(-df_val)))
+            prob_misleading = score_value
+            prob_reliable = 1.0 - score_value
+            score_label = "SVM decision score (uncalibrated)"
         elif hasattr(pipeline, "decision_function"):
             df_val = float(pipeline.decision_function([cleaned])[0])
             # Sigmoid approximation for uncalibrated decision score
@@ -314,8 +338,8 @@ def predict_text(text: str, search_factchecks: bool = True) -> dict[str, Any]:
             predicted_label = LABEL_NAMES[LABEL_RELIABLE]
             class_explanation = LABEL_EXPLANATIONS[LABEL_RELIABLE]
 
-        # 6. Model Explanations (TF-IDF x linear coefficients)
-        explanation = explain_text_prediction(pipeline, cleaned, top_n=6)
+        # 6. Model Explanations (reuse transformed X_vec directly)
+        explanation = explain_text_prediction(pipeline, cleaned, top_n=6, X_vec=X_vec)
 
         return {
             "status": "success",

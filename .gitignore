@@ -25,6 +25,7 @@ data/processed/*.csv
 data/processed/*.joblib
 models/*.joblib
 !models/.gitkeep
+!models/truthlens_model.joblib
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
