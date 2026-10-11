@@ -63,6 +63,7 @@ COMMON_ENGLISH_WORDS = {
 }
 
 # Distinguishing function words for common Latin-script non-English languages
+# Only words that do NOT overlap with standard English vocabulary are kept.
 FOREIGN_STOPWORDS = {
     "hindi_romanized": {
         "hai", "hain", "ke", "ki", "ka", "ko", "se", "aur", "mein", "par",
@@ -70,32 +71,32 @@ FOREIGN_STOPWORDS = {
         "rahe", "huye", "baat", "sarkar", "desh", "unhe", "usne", "unhone",
     },
     "spanish": {
-        "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del",
-        "en", "para", "por", "con", "que", "como", "su", "sus", "pero", "este",
-        "esta", "estos", "estas", "porque", "cuando", "donde", "quien", "mas",
+        "el", "la", "los", "las", "un", "una", "unos", "unas", "del",
+        "para", "por", "con", "que", "como", "su", "sus", "pero", "este",
+        "esta", "estos", "estas", "porque", "cuando", "donde", "quien",
         "más", "sobre", "entre", "sin", "año", "años", "gobierno", "noticia",
     },
     "french": {
-        "le", "la", "les", "un", "une", "des", "du", "de", "en", "pour",
+        "le", "la", "les", "un", "une", "des", "du", "pour",
         "dans", "avec", "sur", "qui", "que", "ce", "cette", "ces", "mais",
-        "ou", "donc", "car", "est", "sont", "ont", "été", "fait", "faire",
+        "ou", "donc", "est", "sont", "ont", "été", "fait", "faire",
         "plus", "tout", "tous", "comme", "gouvernement", "projet",
     },
     "german": {
-        "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer",
-        "eines", "einem", "einen", "und", "in", "von", "zu", "mit", "auf",
-        "für", "ist", "sind", "war", "waren", "nicht", "auch", "als", "werden",
+        "der", "die", "das", "dem", "des", "ein", "eine", "einer",
+        "eines", "einem", "einen", "und", "von", "zu", "mit", "auf",
+        "für", "ist", "sind", "waren", "nicht", "auch", "als", "werden",
         "wird", "wurde", "über", "nach", "regierung", "bericht",
     },
     "italian": {
-        "il", "lo", "la", "i", "gli", "le", "un", "uno", "una", "di",
-        "del", "della", "dei", "delle", "a", "al", "allo", "alla", "agli",
-        "alle", "da", "dal", "in", "nel", "nella", "con", "su", "per", "tra",
+        "il", "lo", "la", "gli", "le", "uno", "una",
+        "del", "della", "dei", "delle", "allo", "alla", "agli",
+        "alle", "dal", "nel", "nella", "con", "su", "tra",
         "fra", "che", "non", "sono", "è", "notizia", "governo",
     },
     "portuguese": {
-        "o", "a", "os", "as", "um", "uma", "uns", "umas", "de", "do",
-        "da", "dos", "das", "em", "no", "na", "nos", "nas", "para", "por",
+        "os", "um", "uma", "uns", "umas",
+        "da", "dos", "das", "na", "nos", "nas", "para", "por",
         "com", "que", "como", "mas", "ou", "se", "seu", "sua", "seus", "suas",
         "mais", "muito", "quando", "governo", "notícia",
     },
@@ -165,14 +166,24 @@ def detect_language(text: str) -> LanguageCheckResult:
     total_words = len(words)
 
     # 3. Check for distinguishing non-English Latin stopwords
+    english_matches = [w for w in words if w in COMMON_ENGLISH_WORDS]
+    english_count = len(english_matches)
+
     for lang_name, stopwords in FOREIGN_STOPWORDS.items():
-        matches = [w for w in words if w in stopwords]
-        # If at least 3 foreign markers or >= 18% of word tokens match foreign stopwords
-        if len(matches) >= 3 or (total_words >= 5 and (len(matches) / total_words) >= 0.18):
+        distinct_stopwords = {w for w in stopwords if w not in COMMON_ENGLISH_WORDS}
+        matches = [w for w in words if w in distinct_stopwords]
+        unique_matches = set(matches)
+
+        # Flag as foreign Latin-script language if:
+        # 1. At least 3 distinct foreign markers are found and not overwhelmed by English function words
+        # 2. Or high density of foreign markers (>= 18% of word tokens and foreign matches >= english_count)
+        if (len(unique_matches) >= 3 and (len(matches) >= english_count or english_count < 2)) or (
+            total_words >= 5 and (len(matches) / total_words) >= 0.18 and len(matches) >= english_count
+        ):
             return {
                 "is_english": False,
                 "detected_language": lang_name,
-                "reason": f"Foreign vocabulary indicators detected ({lang_name}: {matches[:3]})",
+                "reason": f"Foreign vocabulary indicators detected ({lang_name}: {list(unique_matches)[:3]})",
                 "message": UNSUPPORTED_LANGUAGE_MESSAGE,
             }
 

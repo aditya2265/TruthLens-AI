@@ -199,8 +199,15 @@ def index():
 def handle_predict():
     """Processes user text or URL submission and returns analysis view."""
     input_mode = request.form.get("input_mode", "text")
-    submitted_url = request.form.get("article_url", "").strip()
-    submitted_text = request.form.get("news_text", "").strip()
+    submitted_url = (
+        request.form.get("article_url", "").strip()
+        or request.form.get("url", "").strip()
+    )
+    submitted_text = (
+        request.form.get("news_text", "").strip()
+        or request.form.get("article_text", "").strip()
+        or request.form.get("text", "").strip()
+    )
     feed = fetch_gdelt_news(only_cached=True)
 
     if input_mode == "url" and submitted_url:

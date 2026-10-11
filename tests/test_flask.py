@@ -119,6 +119,34 @@ def test_valid_text_submission_returns_prediction(client):
     assert b"Writing Style Signals" in response.data
 
 
+def test_misleading_alert_article_submission_and_history(client):
+    article = (
+        "GLOBAL ALERT: AI Scientists Warn the Internet Will Shut Down Forever This Friday Due to a Quantum Bug!\n\n"
+        "A shocking leak from an anonymous insider inside a prominent international technology agency has revealed "
+        "that the global internet network will completely collapse this coming Friday. World tech leaders are in a total "
+        "panic, but they are hiding the truth from the public to avoid widespread chaos in the financial markets.\n"
+        "According to the confidential document leaked online, a severe and unforeseen bug in quantum servers has begun "
+        "erasing the databases of major global providers. Experts who asked to remain anonymous state that by 12:00 PM "
+        "this Friday, every single smartphone, computer, and online bank account will permanently stop working, "
+        "isolating entire nations."
+    )
+    # Test submission with news_text
+    response = client.post("/predict", data={"news_text": article})
+    assert response.status_code == 200
+    assert b"Misleading-style patterns" in response.data
+    assert b"Unable to assess: this model was trained on English news." not in response.data
+
+    # Test submission with article_text alias
+    response_alias = client.post("/predict", data={"article_text": article})
+    assert response_alias.status_code == 200
+    assert b"Misleading-style patterns" in response_alias.data
+
+    # Verify history has a record
+    hist_response = client.get("/history")
+    assert hist_response.status_code == 200
+    assert b"Misleading-style patterns" in hist_response.data
+
+
 def test_empty_input_redirects_with_warning(client):
     response = client.post("/predict", data={"news_text": "   "}, follow_redirects=True)
     assert response.status_code == 200

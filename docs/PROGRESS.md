@@ -214,4 +214,24 @@
   - `demo_check.ps1`: All 6 checks passed.
   - Hindi safety string: `"Unable to assess: this model was trained on English news."` verified.
 
+---
+
+### Stage 9: Article Analysis & History Persistence Resolution (Completed & Verified)
+- [x] **Root Cause of Analysis Rejection**:
+  - The Latin-script foreign language detector in `src/language.py` previously had cross-vocabulary collisions with common English words (such as `"in"`, `"a"`, `"de"`, `"del"`, `"per"`, etc.).
+  - When analyzing English articles containing words resembling foreign stopwords, the detector falsely triggered `unsupported_language` ("Unable to assess: this model was trained on English news."), short-circuiting the classifier and preventing history recording.
+- [x] **Language Filter Hardening**:
+  - Sanitized foreign stopwords lists in `src/language.py` to strip out all overlapping English words.
+  - Strengthened `detect_language` to verify distinct foreign vocabulary tokens against English function word density before flagging Latin scripts as foreign.
+  - Verified authentic non-English text (Devanagari/Hindi, Spanish, French, German) triggers the exact safety notice while 100% of valid English articles pass cleanly to classification.
+- [x] **Form Parameter Robustness & History Persistence**:
+  - Updated `handle_predict` in `src/app.py` to accept `news_text`, `article_text`, and `text` interchangeably, as well as `article_url` and `url`.
+  - Confirmed `ENABLE_LOCAL_HISTORY: "true"` in `render.yaml` and verified SQLite history storage correctly records excerpts, classification labels, and decision scores.
+  - Whitelisted evaluation and leakage audit JSON artifacts in `.gitignore` (`results/evaluation_report.json`, `results/data_quality_report.json`, `results/leakage_audit.json`).
+- [x] **Comprehensive Verification**:
+  - Added `test_misleading_alert_article_submission_and_history` to `tests/test_flask.py`.
+  - Pytest full suite: **140 passed, 0 failed in 2.45s** (0 errors, 0 regressions).
+  - PowerShell demonstration script (`demo_check.ps1`): **6/6 checks passed**.
+  - User test article correctly classified as **"Misleading-style patterns"** with 75.3% decision score, full feature contribution tokens, and saved to History.
+
 

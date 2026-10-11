@@ -1,0 +1,249 @@
+{
+  "label": "Global model information\u2014not a per-article explanation",
+  "intercept": 0.4991,
+  "total_features": 25000,
+  "top_misleading_features": [
+    {
+      "token": "via",
+      "coefficient": 8.4068
+    },
+    {
+      "token": "read more",
+      "coefficient": 5.6073
+    },
+    {
+      "token": "this",
+      "coefficient": 5.1209
+    },
+    {
+      "token": "read",
+      "coefficient": 4.9668
+    },
+    {
+      "token": "just",
+      "coefficient": 4.775
+    },
+    {
+      "token": "president trump",
+      "coefficient": 4.4233
+    },
+    {
+      "token": "us",
+      "coefficient": 4.307
+    },
+    {
+      "token": "com",
+      "coefficient": 4.2644
+    },
+    {
+      "token": "obama",
+      "coefficient": 4.195
+    },
+    {
+      "token": "gop",
+      "coefficient": 4.1647
+    },
+    {
+      "token": "watch",
+      "coefficient": 4.1383
+    },
+    {
+      "token": "the us",
+      "coefficient": 3.9886
+    },
+    {
+      "token": "you",
+      "coefficient": 3.9448
+    },
+    {
+      "token": "america",
+      "coefficient": 3.882
+    },
+    {
+      "token": "president obama",
+      "coefficient": 3.6097
+    },
+    {
+      "token": "is",
+      "coefficient": 3.4576
+    },
+    {
+      "token": "mr",
+      "coefficient": 3.422
+    },
+    {
+      "token": "hillary",
+      "coefficient": 3.3168
+    },
+    {
+      "token": "twitter com",
+      "coefficient": 3.2887
+    },
+    {
+      "token": "even",
+      "coefficient": 3.2832
+    },
+    {
+      "token": "https",
+      "coefficient": 3.2617
+    },
+    {
+      "token": "sen",
+      "coefficient": 3.2474
+    },
+    {
+      "token": "here",
+      "coefficient": 3.1847
+    },
+    {
+      "token": "pic",
+      "coefficient": 3.1468
+    },
+    {
+      "token": "pic twitter",
+      "coefficient": 3.0929
+    },
+    {
+      "token": "rep",
+      "coefficient": 2.9689
+    },
+    {
+      "token": "our",
+      "coefficient": 2.9466
+    },
+    {
+      "token": "daily",
+      "coefficient": 2.8583
+    },
+    {
+      "token": "these",
+      "coefficient": 2.8473
+    },
+    {
+      "token": "like",
+      "coefficient": 2.8002
+    }
+  ],
+  "top_reliable_features": [
+    {
+      "token": "said",
+      "coefficient": -11.7271
+    },
+    {
+      "token": "said on",
+      "coefficient": -8.6747
+    },
+    {
+      "token": "reuters",
+      "coefficient": -6.0061
+    },
+    {
+      "token": "on wednesday",
+      "coefficient": -5.9794
+    },
+    {
+      "token": "president donald",
+      "coefficient": -5.7955
+    },
+    {
+      "token": "on tuesday",
+      "coefficient": -5.6602
+    },
+    {
+      "token": "on thursday",
+      "coefficient": -5.4671
+    },
+    {
+      "token": "on friday",
+      "coefficient": -5.2485
+    },
+    {
+      "token": "said in",
+      "coefficient": -5.0614
+    },
+    {
+      "token": "on monday",
+      "coefficient": -4.5125
+    },
+    {
+      "token": "wednesday",
+      "coefficient": -4.2561
+    },
+    {
+      "token": "said the",
+      "coefficient": -4.1746
+    },
+    {
+      "token": "tuesday",
+      "coefficient": -4.083
+    },
+    {
+      "token": "thursday",
+      "coefficient": -3.9862
+    },
+    {
+      "token": "he said",
+      "coefficient": -3.841
+    },
+    {
+      "token": "republican",
+      "coefficient": -3.7795
+    },
+    {
+      "token": "minister",
+      "coefficient": -3.4762
+    },
+    {
+      "token": "friday",
+      "coefficient": -3.425
+    },
+    {
+      "token": "told reuters",
+      "coefficient": -3.3754
+    },
+    {
+      "token": "nov",
+      "coefficient": -3.3073
+    },
+    {
+      "token": "in statement",
+      "coefficient": -3.0102
+    },
+    {
+      "token": "on sunday",
+      "coefficient": -2.9709
+    },
+    {
+      "token": "reporters",
+      "coefficient": -2.9667
+    },
+    {
+      "token": "its",
+      "coefficient": -2.9485
+    },
+    {
+      "token": "democratic",
+      "coefficient": -2.9059
+    },
+    {
+      "token": "told reporters",
+      "coefficient": -2.8633
+    },
+    {
+      "token": "monday",
+      "coefficient": -2.7983
+    },
+    {
+      "token": "spokesman",
+      "coefficient": -2.7795
+    },
+    {
+      "token": "president barack",
+      "coefficient": -2.7448
+    },
+    {
+      "token": "presidential",
+      "coefficient": -2.7407
+    }
+  ]
+}

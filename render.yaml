@@ -10,7 +10,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: ENABLE_LOCAL_HISTORY
-        value: "false"
+        value: "true"
       - key: MAX_INPUT_LENGTH
         value: "15000"
       - key: GOOGLE_FACTCHECK_API_KEY

@@ -1,0 +1,48 @@
+{
+  "dataset_name": "Fake and Real News Dataset (ISOT / Clement Bisaillon)",
+  "source": "https://www.kaggle.com/datasets/clmentbisaillon/fake-and-real-news-dataset",
+  "license": "CC0: Public Domain (as declared on Kaggle source)",
+  "intended_use": "Binary NLP text classification research and educational demonstration",
+  "timestamp": "2026-10-10T10:12:45.565714+00:00",
+  "total_raw_rows": 44898,
+  "missing_text_count": 0,
+  "empty_text_count": 631,
+  "class_balance": {
+    "misleading_label_1": 23481,
+    "reliable_label_0": 21417,
+    "ratio_misleading": 0.523
+  },
+  "text_length_summary": {
+    "mean_char_length": 2469.1,
+    "median_char_length": 2186.0,
+    "min_char_length": 1,
+    "max_char_length": 51794,
+    "mean_word_length": 405.3,
+    "median_word_length": 362.0
+  },
+  "class_text_lengths": {
+    "misleading": {
+      "mean_words": 423.2,
+      "median_words": 363.0
+    },
+    "reliable": {
+      "mean_words": 385.6,
+      "median_words": 359.0
+    }
+  },
+  "known_artifacts": [
+    "Real news articles predominantly feature '(Reuters)' or 'WASHINGTON (Reuters) -' datelines",
+    "Fake news articles include clickbait headlines, uppercase markers, and image credits",
+    "Articles originate from approximately 2016-2017 US political news cycle"
+  ],
+  "deduplication": {
+    "initial_row_count": 44898,
+    "missing_text_count": 631,
+    "empty_text_after_clean_count": 0,
+    "exact_duplicate_texts": 10768,
+    "conflicting_label_duplicates": 0,
+    "conflicting_rows_dropped": 0,
+    "final_retained_rows": 44267,
+    "unique_groups_count": 37862
+  }
+}

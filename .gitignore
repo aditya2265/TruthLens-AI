@@ -32,6 +32,9 @@ models/*.joblib
 # Results & evaluation outputs
 results/*.json
 !results/.gitkeep
+!results/evaluation_report.json
+!results/data_quality_report.json
+!results/leakage_audit.json
 
 # IDE and OS files
 .vscode/
